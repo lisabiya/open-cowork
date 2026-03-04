@@ -314,29 +314,29 @@ describe('ScheduledTaskManager', () => {
     expect(created.repeatUnit).toBeNull();
   });
 
-  it('creates task with auto title derived from prompt', () => {
+  it('keeps provided title and normalizes schedule prefix', () => {
     const now = Date.now();
     const store = createStore([]);
     const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-title-create' });
     const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
 
     const created = manager.create({
-      title: '手动标题会被覆盖',
+      title: '  需要汇总论文  ',
       prompt: '  帮我整理今天团队待办  ',
       cwd: '/tmp/project',
       runAt: now + 60 * 1000,
       enabled: true,
     });
 
-    expect(created.title).toBe(buildScheduledTaskTitle('帮我整理今天团队待办'));
+    expect(created.title).toBe(buildScheduledTaskTitle('需要汇总论文'));
   });
 
-  it('updates title when prompt changes', () => {
+  it('keeps existing title when prompt changes without explicit title update', () => {
     const now = Date.now();
     const store = createStore([
       createTask({
         id: 'title-update',
-        title: '旧标题',
+        title: buildScheduledTaskTitle('旧标题'),
         prompt: '旧任务',
         runAt: now + 60_000,
         nextRunAt: now + 60_000,
@@ -347,7 +347,7 @@ describe('ScheduledTaskManager', () => {
 
     const updated = manager.update('title-update', { prompt: '每周汇总销售数据并发送到群里' });
 
-    expect(updated?.title).toBe(buildScheduledTaskTitle('每周汇总销售数据并发送到群里'));
+    expect(updated?.title).toBe(buildScheduledTaskTitle('旧标题'));
   });
 
   it('does not execute long-delay task before nextRunAt when delay exceeds max timer range', async () => {

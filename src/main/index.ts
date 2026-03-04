@@ -9,7 +9,7 @@ import { SkillsManager } from './skills/skills-manager';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
 import { configStore, PROVIDER_PRESETS, type AppConfig, type CreateConfigSetPayload } from './config/config-store';
-import { testApiConnection } from './config/api-tester';
+import { runConfigApiTest } from './config/config-test-routing';
 import { getLocalAuthStatuses, importLocalAuthToken, type LocalAuthProvider } from './auth/local-auth';
 import { mcpConfigStore } from './mcp/mcp-config-store';
 import { credentialsStore, type UserCredential } from './credentials/credentials-store';
@@ -29,6 +29,11 @@ import {
   type ScheduledTaskUpdateInput,
 } from './schedule/scheduled-task-manager';
 import { createScheduledTaskStore } from './schedule/scheduled-task-store';
+import { getClaudeUnifiedModeState, isClaudeUnifiedModeEnabled } from './session/claude-unified-mode';
+import {
+  buildScheduledTaskFallbackTitle,
+  buildScheduledTaskTitle,
+} from '../shared/schedule/task-title';
 import {
   log,
   logWarn,
@@ -68,6 +73,26 @@ let sessionManager: SessionManager | null = null;
 let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
+
+async function resolveScheduledTaskTitle(
+  prompt: string,
+  cwd?: string,
+  fallbackTitle?: string
+): Promise<string> {
+  const normalizedPrompt = prompt.trim();
+  const fallback = fallbackTitle
+    ? buildScheduledTaskTitle(fallbackTitle)
+    : buildScheduledTaskFallbackTitle(normalizedPrompt);
+  if (!sessionManager) {
+    return fallback;
+  }
+  try {
+    return await sessionManager.generateScheduledTaskTitle(normalizedPrompt, cwd);
+  } catch (error) {
+    logWarn('[Schedule] Failed to generate title via session title flow, using fallback', error);
+    return fallback;
+  }
+}
 
 async function waitForDevServer(url: string, maxAttempts = 30, intervalMs = 500): Promise<boolean> {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -509,6 +534,11 @@ app.whenReady().then(async () => {
   log('=== Open Cowork Starting ===');
   log('Config file:', configStore.getPath());
   log('Is configured:', configStore.isConfigured());
+  const unifiedModeState = getClaudeUnifiedModeState();
+  log('[ClaudeUnified] Mode:', unifiedModeState.enabled ? 'enabled' : 'disabled', {
+    reason: unifiedModeState.reason,
+    legacy_force_flag: unifiedModeState.legacyForceFlag,
+  });
   log('Developer logs:', enableDevLogs ? 'Enabled' : 'Disabled');
   log('Environment Variables:');
   log('  ANTHROPIC_AUTH_TOKEN:', process.env.ANTHROPIC_AUTH_TOKEN ? '✓ Set' : '✗ Not set');
@@ -556,7 +586,14 @@ app.whenReady().then(async () => {
       if (!sessionManager) {
         throw new Error('Session manager not initialized');
       }
-      const title = task.title?.trim() || '定时任务';
+      const fallbackTitle = buildScheduledTaskFallbackTitle(task.prompt);
+      const needsRegeneratedTitle = !task.title?.trim() || task.title === fallbackTitle;
+      const title = needsRegeneratedTitle
+        ? await resolveScheduledTaskTitle(task.prompt, task.cwd, task.title)
+        : buildScheduledTaskTitle(task.title);
+      if (title !== task.title) {
+        scheduledTaskManager?.update(task.id, { title });
+      }
       const started = await sessionManager.startSession(title, task.prompt, task.cwd);
       // 定时任务创建的新会话需要主动同步到前端会话列表
       sendToRenderer({
@@ -949,7 +986,7 @@ ipcMain.handle('config.isConfigured', () => {
 
 ipcMain.handle('config.test', async (_event, payload: ApiTestInput): Promise<ApiTestResult> => {
   try {
-    return await testApiConnection(payload);
+    return await runConfigApiTest(payload, configStore.getAll(), isClaudeUnifiedModeEnabled());
   } catch (error) {
     logError('[Config] API test failed:', error);
     return {
@@ -1804,18 +1841,42 @@ ipcMain.handle('schedule.list', () => {
   return scheduledTaskManager.list();
 });
 
-ipcMain.handle('schedule.create', (_event, payload: ScheduledTaskCreateInput) => {
+ipcMain.handle('schedule.create', async (_event, payload: ScheduledTaskCreateInput) => {
   if (!scheduledTaskManager) {
     throw new Error('Scheduled task manager not initialized');
   }
-  return scheduledTaskManager.create(payload);
+  const normalizedPrompt = payload.prompt.trim();
+  const title = await resolveScheduledTaskTitle(normalizedPrompt, payload.cwd, payload.title);
+  return scheduledTaskManager.create({
+    ...payload,
+    prompt: normalizedPrompt,
+    title,
+  });
 });
 
-ipcMain.handle('schedule.update', (_event, id: string, updates: ScheduledTaskUpdateInput) => {
+ipcMain.handle('schedule.update', async (_event, id: string, updates: ScheduledTaskUpdateInput) => {
   if (!scheduledTaskManager) {
     throw new Error('Scheduled task manager not initialized');
   }
-  return scheduledTaskManager.update(id, updates);
+  const existing = scheduledTaskManager.get(id);
+  if (!existing) return null;
+  const normalizedPrompt = updates.prompt === undefined ? existing.prompt : updates.prompt.trim();
+  const normalizedUpdates: ScheduledTaskUpdateInput = {
+    ...updates,
+    prompt: normalizedPrompt,
+  };
+
+  if (updates.prompt !== undefined) {
+    normalizedUpdates.title = await resolveScheduledTaskTitle(
+      normalizedPrompt,
+      updates.cwd ?? existing.cwd,
+      updates.title ?? existing.title
+    );
+  } else if (updates.title !== undefined) {
+    normalizedUpdates.title = buildScheduledTaskTitle(updates.title);
+  }
+
+  return scheduledTaskManager.update(id, normalizedUpdates);
 });
 
 ipcMain.handle('schedule.delete', (_event, id: string) => {
@@ -1948,10 +2009,11 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
     case 'session.delete':
       return sessionManager.deleteSession(event.payload.sessionId);
 
-    case 'session.list':
+    case 'session.list': {
       const sessions = sessionManager.listSessions();
       sendToRenderer({ type: 'session.list', payload: { sessions } });
       return sessions;
+    }
 
     case 'session.getMessages':
       return sessionManager.getMessages(event.payload.sessionId);
@@ -1971,7 +2033,7 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         event.payload.answer
       );
 
-    case 'folder.select':
+    case 'folder.select': {
       const folderResult = await dialog.showOpenDialog(mainWindow!, {
         properties: ['openDirectory'],
       });
@@ -1983,6 +2045,7 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         return folderResult.filePaths[0];
       }
       return null;
+    }
 
     case 'workdir.get':
       return getWorkingDir();
@@ -1990,7 +2053,7 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
     case 'workdir.set':
       return setWorkingDir(event.payload.path, event.payload.sessionId);
 
-    case 'workdir.select':
+    case 'workdir.select': {
       const workdirResult = await dialog.showOpenDialog(mainWindow!, {
         properties: ['openDirectory'],
         title: 'Select Working Directory',
@@ -2001,6 +2064,7 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         return setWorkingDir(selectedPath, event.payload.sessionId);
       }
       return { success: false, path: '', error: 'User cancelled' };
+    }
 
     case 'settings.update':
       // TODO: Implement settings update

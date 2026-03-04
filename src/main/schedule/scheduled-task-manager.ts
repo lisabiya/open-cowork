@@ -1,4 +1,7 @@
-import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
+import {
+  buildScheduledTaskFallbackTitle,
+  buildScheduledTaskTitle,
+} from '../../shared/schedule/task-title';
 
 export type ScheduleRepeatUnit = 'minute' | 'hour' | 'day';
 
@@ -20,7 +23,7 @@ export interface ScheduledTask {
 }
 
 export interface ScheduledTaskCreateInput {
-  title: string;
+  title?: string;
   prompt: string;
   cwd: string;
   runAt: number;
@@ -114,9 +117,15 @@ export class ScheduledTaskManager {
     });
   }
 
+  get(id: string): ScheduledTask | null {
+    return this.store.get(id);
+  }
+
   create(input: ScheduledTaskCreateInput): ScheduledTask {
     const normalizedPrompt = input.prompt.trim();
-    const normalizedTitle = buildScheduledTaskTitle(normalizedPrompt);
+    const normalizedTitle = buildScheduledTaskTitle(
+      input.title ?? buildScheduledTaskFallbackTitle(normalizedPrompt)
+    );
     const normalizedRepeatEvery = normalizeRepeatEvery(input.repeatEvery);
     const normalizedRepeatUnit = normalizedRepeatEvery === null
       ? null
@@ -138,7 +147,9 @@ export class ScheduledTaskManager {
     const current = this.store.get(id);
     if (!current) return null;
     const nextPrompt = updates.prompt === undefined ? current.prompt : updates.prompt.trim();
-    const nextTitle = buildScheduledTaskTitle(nextPrompt);
+    const nextTitle = updates.title === undefined
+      ? current.title
+      : buildScheduledTaskTitle(updates.title || nextPrompt);
     const nextRepeatEvery = updates.repeatEvery === undefined
       ? undefined
       : normalizeRepeatEvery(updates.repeatEvery);
@@ -258,18 +269,8 @@ export class ScheduledTaskManager {
   }
 
   private async executeAndRecord(task: ScheduledTask): Promise<ScheduledTaskExecutionRecord> {
-    const runtimeTitle = buildScheduledTaskTitle(task.prompt);
-    const taskForExecution = task.title === runtimeTitle
-      ? task
-      : {
-          ...task,
-          title: runtimeTitle,
-        };
-    if (taskForExecution !== task) {
-      this.store.update(task.id, { title: runtimeTitle });
-    }
     try {
-      const result = await this.executeTask(taskForExecution);
+      const result = await this.executeTask(task);
       this.store.update(task.id, {
         lastRunAt: this.now(),
         lastRunSessionId: result.sessionId,

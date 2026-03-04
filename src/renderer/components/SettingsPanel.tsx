@@ -15,7 +15,6 @@ import { RemoteControlPanel } from './RemoteControlPanel';
 import { useApiConfigState } from '../hooks/useApiConfigState';
 import { ApiConfigSetManager } from './ApiConfigSetManager';
 import { useAppStore } from '../store';
-import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -497,7 +496,12 @@ function APISettingsTab() {
             <div>
               {testResult.ok
                 ? t('api.testSuccess', { ms: typeof testResult.latencyMs === 'number' ? testResult.latencyMs : '--' })
-                : t(`api.testError.${testResult.errorType || 'unknown'}`)}
+                : (testResult.details?.startsWith('custom_openai_official_base_unsupported:')
+                    ? (() => {
+                        const base = testResult.details.split(':').slice(1).join(':').trim();
+                        return `当前 custom/openai + ${base || '官方 OpenAI Base URL'} 在统一模式下不可用，请改为 custom/anthropic + 网关 URL 并保存后重试。`;
+                      })()
+                    : t(`api.testError.${testResult.errorType || 'unknown'}`))}
             </div>
             {!testResult.ok && testResult.details && (
               <div className="mt-1 text-xs text-text-muted">{testResult.details}</div>
@@ -3028,7 +3032,14 @@ function ScheduleTab() {
   const [repeatEnabled, setRepeatEnabled] = useState(false);
   const [repeatEvery, setRepeatEvery] = useState(1);
   const [repeatUnit, setRepeatUnit] = useState<ScheduleRepeatUnit>('day');
-  const previewTitle = buildScheduledTaskTitle(prompt);
+  const promptChangedWhileEditing = Boolean(
+    editingTaskSnapshot && prompt.trim() !== editingTaskSnapshot.prompt.trim()
+  );
+  const previewTitle = editingId
+    ? (promptChangedWhileEditing
+      ? '保存后将基于 Prompt 自动生成 [定时任务] 标题'
+      : (editingTaskSnapshot?.title || '保存后将自动生成 [定时任务] 标题'))
+    : '保存后将自动生成：[定时任务] + 模型摘要';
 
   useEffect(() => {
     const defaultRunAt = Date.now() + 5 * 60 * 1000;
@@ -3091,11 +3102,14 @@ function ScheduleTab() {
     setError('');
     setSuccess('');
     try {
-      const normalizedTitle = buildScheduledTaskTitle(trimmedPrompt);
       if (editingId) {
         const originalRunAtInput = editingTaskSnapshot
           ? toLocalDateTimeInput(editingTaskSnapshot.nextRunAt ?? editingTaskSnapshot.runAt)
           : null;
+        const shouldRegenerateTitle = (
+          !editingTaskSnapshot ||
+          trimmedPrompt !== editingTaskSnapshot.prompt.trim()
+        );
         const shouldResetScheduleTime = (
           !editingTaskSnapshot ||
           runAt !== originalRunAtInput ||
@@ -3106,13 +3120,14 @@ function ScheduleTab() {
           return;
         }
         const payload: ScheduleUpdateInput = {
-          title: normalizedTitle,
-          prompt: trimmedPrompt,
           cwd: cwd.trim() || workingDir || '',
           enabled,
           repeatEvery: repeatEnabled ? repeatEvery : null,
           repeatUnit: repeatEnabled ? repeatUnit : null,
         };
+        if (shouldRegenerateTitle) {
+          payload.prompt = trimmedPrompt;
+        }
         if (shouldResetScheduleTime) {
           payload.runAt = runAtValue;
           payload.nextRunAt = runAtValue;
@@ -3128,7 +3143,6 @@ function ScheduleTab() {
           return;
         }
         const payload: ScheduleCreateInput = {
-          title: normalizedTitle,
           prompt: trimmedPrompt,
           cwd: cwd.trim() || workingDir || '',
           runAt: runAtValue,
@@ -3219,7 +3233,7 @@ function ScheduleTab() {
 
   async function deleteTask(task: ScheduleTask) {
     if (!isElectron) return;
-    if (!window.confirm(`确认删除任务「${buildScheduledTaskTitle(task.prompt)}」？`)) return;
+    if (!window.confirm(`确认删除任务「${task.title}」？`)) return;
     setIsLoading(true);
     setError('');
     setSuccess('');
@@ -3285,6 +3299,13 @@ function ScheduleTab() {
         <div className="rounded-lg border border-border bg-background px-3 py-2">
           <div className="text-xs text-text-muted mb-1">自动标题（用于会话区分）</div>
           <div className="text-sm text-text-primary break-all">{previewTitle}</div>
+          {editingId && (
+            <div className="text-xs text-text-muted mt-2">
+              {promptChangedWhileEditing
+                ? '检测到 Prompt 已修改，保存后会重新生成标题。'
+                : '未修改 Prompt 时将保留现有标题。'}
+            </div>
+          )}
         </div>
         <textarea
           value={prompt}
@@ -3379,7 +3400,6 @@ function ScheduleTab() {
                   ? sessions.find((session) => session.id === task.lastRunSessionId) ?? null
                   : null;
                 const isTaskRunning = lastRunSession?.status === 'running';
-                const displayTitle = buildScheduledTaskTitle(task.prompt);
                 const lastRunStatusLabel = lastRunSession
                   ? (isTaskRunning ? '运行中' : '已结束')
                   : (task.lastRunSessionId ? '未知' : '无');
@@ -3387,7 +3407,7 @@ function ScheduleTab() {
                   <>
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="font-medium text-sm text-text-primary truncate">{displayTitle}</div>
+                  <div className="font-medium text-sm text-text-primary truncate">{task.title}</div>
                   <div className="text-xs text-text-muted truncate">{task.prompt}</div>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded ${task.enabled ? 'bg-success/10 text-success' : 'bg-surface-hover text-text-muted'}`}>

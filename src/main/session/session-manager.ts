@@ -16,18 +16,27 @@ import { configStore } from '../config/config-store';
 import {
   buildOpenAICodexHeaders,
   resolveOpenAICredentials,
+  shouldAllowEmptyAnthropicApiKey,
   shouldUseAnthropicAuthToken,
 } from '../config/auth-utils';
 import { MCPManager } from '../mcp/mcp-manager';
 import { mcpConfigStore } from '../mcp/mcp-config-store';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
-import { log, logError } from '../utils/logger';
+import { log, logError, logWarn } from '../utils/logger';
 import {
   selectOpenAIBackendRoute,
   type OpenAIBackendRoute,
 } from './openai-backend-routing';
 import { decideOpenAIFailoverFromCodex } from './openai-failover-policy';
 import { maybeGenerateSessionTitle } from './session-title-flow';
+import {
+  buildTitlePrompt,
+  getDefaultTitleFromPrompt,
+  normalizeGeneratedTitle,
+} from './session-title-utils';
+import { generateTitleWithClaudeSdk } from '../claude/claude-sdk-one-shot';
+import { getClaudeUnifiedModeState, isClaudeUnifiedModeEnabled } from './claude-unified-mode';
+import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -39,6 +48,10 @@ interface AgentRunner {
 type CodexRunnerErrorLike = {
   codexFailureContext?: CodexFailureContext;
 };
+
+const LOCAL_ANTHROPIC_PLACEHOLDER_KEY = 'sk-ant-local-proxy';
+const WORKSPACE_MOUNT_VIRTUAL_PATH = '/mnt/workspace';
+const TITLE_GENERATION_TIMEOUT_MS = 20000;
 
 export class SessionManager {
   private db: DatabaseInstance;
@@ -53,6 +66,7 @@ export class SessionManager {
   private pendingPermissions: Map<string, (result: PermissionResult) => void> = new Map();
   private sandboxInitPromises: Map<string, Promise<void>> = new Map();
   private sessionTitleAttempts: Set<string> = new Set();
+  private titleGenerationTokens: Map<string, symbol> = new Map();
   private openaiBackendRoute: OpenAIBackendRoute | null = null;
   private responsesFallbackRunnerBySession: Map<string, OpenAIResponsesRunner> = new Map();
 
@@ -93,7 +107,18 @@ export class SessionManager {
     const provider = configStore.get('provider');
     const customProtocol = configStore.get('customProtocol');
     const useOpenAI = provider === 'openai' || (provider === 'custom' && customProtocol === 'openai');
+    const unifiedMode = getClaudeUnifiedModeState();
     this.openaiBackendRoute = null;
+    if (unifiedMode.enabled) {
+      this.openaiBackendRoute = null;
+      this.agentRunner = this.createClaudeAgentRunner();
+      log('[SessionManager] Using Claude Agent runner (unified mode)', {
+        useOpenAI,
+        reason: unifiedMode.reason,
+        legacy_force_flag: unifiedMode.legacyForceFlag,
+      });
+      return;
+    }
     if (useOpenAI) {
       const hasLocalCodexLogin = Boolean(importLocalAuthToken('codex')?.token?.trim());
       const openaiBackend = selectOpenAIBackendRoute({
@@ -112,22 +137,25 @@ export class SessionManager {
       log('[SessionManager] Using OpenAI runner', { openai_backend: openaiBackend });
     } else {
       this.openaiBackendRoute = null;
-      // Initialize Claude Agent Runner with message save callback
-      this.agentRunner = new ClaudeAgentRunner(
-        {
-          sendToRenderer: this.sendToRenderer,
-          saveMessage: (message: Message) => this.saveMessage(message),
-        },
-        this.pathResolver,
-        this.mcpManager,
-        this.pluginRuntimeService
-      );
+      this.agentRunner = this.createClaudeAgentRunner();
       log('[SessionManager] Using Claude Agent runner');
     }
   }
 
   private shouldForceResponsesFallback(): boolean {
     return process.env.COWORK_FORCE_OPENAI_RESPONSES === '1';
+  }
+
+  private createClaudeAgentRunner(): ClaudeAgentRunner {
+    return new ClaudeAgentRunner(
+      {
+        sendToRenderer: this.sendToRenderer,
+        saveMessage: (message: Message) => this.saveMessage(message),
+      },
+      this.pathResolver,
+      this.mcpManager,
+      this.pluginRuntimeService
+    );
   }
 
   private createOpenAIResponsesRunner(): OpenAIResponsesRunner {
@@ -244,6 +272,13 @@ export class SessionManager {
   }
 
   // Create a new session object
+  private buildMountedPaths(cwd?: string): Session['mountedPaths'] {
+    if (!cwd) {
+      return [];
+    }
+    return [{ virtual: WORKSPACE_MOUNT_VIRTUAL_PATH, real: cwd }];
+  }
+
   private createSession(title: string, cwd?: string, allowedTools?: string[]): Session {
     const now = Date.now();
     // Prefer frontend-provided cwd; fallback to env vars if provided
@@ -254,7 +289,7 @@ export class SessionManager {
       title,
       status: 'idle',
       cwd: effectiveCwd,
-      mountedPaths: effectiveCwd ? [{ virtual: `/mnt/workspace`, real: effectiveCwd }] : [],
+      mountedPaths: this.buildMountedPaths(effectiveCwd),
       allowedTools: allowedTools || [
         'askuserquestion',
         'todowrite',
@@ -340,6 +375,26 @@ export class SessionManager {
     }
 
     this.enqueuePrompt(session, prompt, content);
+  }
+
+  async generateSessionTitleFromPrompt(prompt: string, cwd?: string): Promise<string> {
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt) {
+      return 'New Session';
+    }
+
+    const generated = await this.withTimeout(
+      this.generateTitleWithConfig(buildTitlePrompt(normalizedPrompt), cwd),
+      TITLE_GENERATION_TIMEOUT_MS,
+      'session-title-preview'
+    );
+    const normalizedGenerated = normalizeGeneratedTitle(generated);
+    return normalizedGenerated ?? getDefaultTitleFromPrompt(normalizedPrompt);
+  }
+
+  async generateScheduledTaskTitle(prompt: string, cwd?: string): Promise<string> {
+    const sessionTitle = await this.generateSessionTitleFromPrompt(prompt, cwd);
+    return buildScheduledTaskTitle(sessionTitle);
   }
 
   /**
@@ -567,6 +622,8 @@ export class SessionManager {
   ): Promise<boolean> {
     const provider = configStore.get('provider');
     const customProtocol = configStore.get('customProtocol');
+    const apiKey = configStore.get('apiKey');
+    const baseUrl = configStore.get('baseUrl');
     const useOpenAI = provider === 'openai' || (provider === 'custom' && customProtocol === 'openai');
     if (!useOpenAI) {
       return false;
@@ -581,10 +638,15 @@ export class SessionManager {
     }
 
     const codexFailureContext = this.extractCodexFailureContext(runnerError);
-    const hasApiKey = Boolean(configStore.get('apiKey')?.trim());
+    const hasOpenAICredentials = Boolean(resolveOpenAICredentials({
+      provider,
+      customProtocol,
+      apiKey,
+      baseUrl,
+    })?.apiKey);
     const decision = decideOpenAIFailoverFromCodex({
       error: runnerError,
-      hasApiKey,
+      hasOpenAICredentials,
       alreadyUsingResponsesFallback: false,
       hasTurnOutput: codexFailureContext.hasTurnOutput,
       hasTurnSideEffects: codexFailureContext.hasTurnSideEffects,
@@ -631,6 +693,14 @@ export class SessionManager {
   }
 
   private async runSessionTitleGeneration(session: Session, prompt: string, existingMessages: Message[]): Promise<void> {
+    const token = Symbol(`title:${session.id}`);
+    this.titleGenerationTokens.set(session.id, token);
+    const shouldAbort = () => {
+      if (this.titleGenerationTokens.get(session.id) !== token) {
+        return true;
+      }
+      return !this.db.sessions.get(session.id);
+    };
     const userMessageCount = existingMessages.filter((message) => message.role === 'user').length;
     try {
       await maybeGenerateSessionTitle({
@@ -639,23 +709,74 @@ export class SessionManager {
         userMessageCount,
         currentTitle: session.title,
         hasAttempted: this.sessionTitleAttempts.has(session.id),
-        generateTitle: (titlePrompt) => this.generateTitleWithConfig(titlePrompt),
+        generateTitle: async (titlePrompt) => {
+          for (let attempt = 1; attempt <= 2; attempt += 1) {
+            if (shouldAbort()) {
+              return null;
+            }
+            const title = await this.withTimeout(
+              this.generateTitleWithConfig(titlePrompt, session.cwd),
+              TITLE_GENERATION_TIMEOUT_MS,
+              session.id
+            );
+            const normalizedTitle = normalizeGeneratedTitle(title);
+            if (normalizedTitle) {
+              return normalizedTitle;
+            }
+            if (attempt === 1) {
+              log('[SessionTitle] Empty title from generator, retrying once', session.id);
+            }
+          }
+          return null;
+        },
         getLatestTitle: () => this.db.sessions.get(session.id)?.title ?? null,
         markAttempt: () => {
           this.sessionTitleAttempts.add(session.id);
         },
         updateTitle: async (title) => {
+          if (shouldAbort()) {
+            log('[SessionTitle] Skip update: session no longer active', session.id);
+            return;
+          }
           session.title = title;
           this.updateSessionTitle(session.id, title);
         },
+        shouldAbort,
         log,
       });
     } catch (error) {
       logError('[SessionTitle] Unexpected error', session.id, error);
+    } finally {
+      if (this.titleGenerationTokens.get(session.id) === token) {
+        this.titleGenerationTokens.delete(session.id);
+      }
     }
   }
 
-  private async generateTitleWithConfig(titlePrompt: string): Promise<string | null> {
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, sessionId: string): Promise<T | null> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        logError('[SessionTitle] Generation timed out', { sessionId, timeoutMs });
+        resolve(null);
+      }, timeoutMs);
+      promise
+        .then((value) => {
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch((error) => {
+          clearTimeout(timer);
+          logError('[SessionTitle] Generation rejected', { sessionId, error });
+          resolve(null);
+        });
+    });
+  }
+
+  private async generateTitleWithConfig(titlePrompt: string, cwd?: string): Promise<string | null> {
+    if (isClaudeUnifiedModeEnabled()) {
+      return normalizeGeneratedTitle(await generateTitleWithClaudeSdk(titlePrompt, configStore.getAll(), cwd));
+    }
+
     const provider = configStore.get('provider');
     const customProtocol = configStore.get('customProtocol');
     const apiKey = configStore.get('apiKey');
@@ -706,7 +827,7 @@ export class SessionManager {
               (block as { type?: string }).type === 'output_text' &&
               typeof (block as { text?: string }).text === 'string'
             ) {
-              return (block as { text: string }).text.trim() || null;
+              return normalizeGeneratedTitle((block as { text: string }).text);
             }
           }
         }
@@ -719,26 +840,39 @@ export class SessionManager {
         temperature: 0.2,
         max_tokens: 64,
       });
-      return response.choices[0]?.message?.content?.trim() || null;
+      return normalizeGeneratedTitle(response.choices[0]?.message?.content);
     }
 
     const trimmedApiKey = apiKey?.trim();
-    if (!trimmedApiKey) {
+    const effectiveAnthropicApiKey = trimmedApiKey || (
+      shouldAllowEmptyAnthropicApiKey({
+        provider,
+        customProtocol,
+        baseUrl,
+      })
+        ? LOCAL_ANTHROPIC_PLACEHOLDER_KEY
+        : ''
+    );
+    if (!effectiveAnthropicApiKey) {
       log('[SessionTitle] Missing API key, skip generation');
       return null;
     }
 
-    const useAuthTokenHeader = shouldUseAnthropicAuthToken({ provider, customProtocol, apiKey: trimmedApiKey });
+    const useAuthTokenHeader = shouldUseAnthropicAuthToken({
+      provider,
+      customProtocol,
+      apiKey: effectiveAnthropicApiKey,
+    });
     const client = useAuthTokenHeader
-      ? new Anthropic({ authToken: trimmedApiKey, baseURL: baseUrl || undefined })
-      : new Anthropic({ apiKey: trimmedApiKey, baseURL: baseUrl || undefined });
+      ? new Anthropic({ authToken: effectiveAnthropicApiKey, baseURL: baseUrl || undefined })
+      : new Anthropic({ apiKey: effectiveAnthropicApiKey, baseURL: baseUrl || undefined });
     const response = await client.messages.create({
       model,
       max_tokens: 64,
       messages: [{ role: 'user', content: titlePrompt }],
     });
     const text = response.content.find((item) => item.type === 'text')?.text;
-    return text?.trim() || null;
+    return normalizeGeneratedTitle(text);
   }
 
   private enqueuePrompt(session: Session, prompt: string, content?: ContentBlock[]): void {
@@ -768,7 +902,13 @@ export class SessionManager {
         const item = queue.shift();
         if (!item) continue;
 
-        await this.processPrompt(session, item.prompt, item.content);
+        const latestSession = this.loadSession(session.id);
+        if (!latestSession) {
+          log('[SessionManager] Session removed while processing queue:', session.id);
+          break;
+        }
+
+        await this.processPrompt(latestSession, item.prompt, item.content);
 
         if (controller.signal.aborted) break;
       }
@@ -779,23 +919,32 @@ export class SessionManager {
         this.promptQueues.delete(session.id);
       }
       this.updateSessionStatus(session.id, 'idle');
+      const pendingQueue = this.promptQueues.get(session.id);
+      if (pendingQueue && pendingQueue.length > 0) {
+        const latestSession = this.loadSession(session.id);
+        if (latestSession) {
+          log('[SessionManager] Restarting queued prompts after stop/drain:', session.id);
+          void this.processQueue(latestSession);
+        } else {
+          this.promptQueues.delete(session.id);
+        }
+      }
     }
   }
 
   // Stop a running session
   stopSession(sessionId: string): void {
     log('[SessionManager] Stopping session:', sessionId);
+    this.titleGenerationTokens.delete(sessionId);
     this.agentRunner.cancel(sessionId);
     const fallbackRunner = this.responsesFallbackRunnerBySession.get(sessionId);
     if (fallbackRunner) {
       fallbackRunner.cancel(sessionId);
-      this.responsesFallbackRunnerBySession.delete(sessionId);
     }
     // Also abort any pending controller we tracked
     const controller = this.activeSessions.get(sessionId);
     if (controller) {
       controller.abort();
-      this.activeSessions.delete(sessionId);
     }
     this.promptQueues.delete(sessionId);
     this.updateSessionStatus(sessionId, 'idle');
@@ -821,6 +970,7 @@ export class SessionManager {
     // Delete from database (messages will be deleted automatically via CASCADE)
     this.db.sessions.delete(sessionId);
     this.sessionTitleAttempts.delete(sessionId);
+    this.titleGenerationTokens.delete(sessionId);
     
     log('[SessionManager] Session deleted:', sessionId);
   }
@@ -836,6 +986,10 @@ export class SessionManager {
   }
 
   private updateSessionTitle(sessionId: string, title: string): void {
+    if (!this.db.sessions.get(sessionId)) {
+      log('[SessionTitle] Skip title update for deleted session:', sessionId);
+      return;
+    }
     this.db.sessions.update(sessionId, { title });
     this.sendToRenderer({
       type: 'session.update',
@@ -846,10 +1000,16 @@ export class SessionManager {
   // Update session's working directory
   // Also clears SDK session cache because Claude SDK sessions are bound to cwd
   updateSessionCwd(sessionId: string, cwd: string): void {
+    if (this.activeSessions.has(sessionId)) {
+      logWarn('[SessionManager] CWD change requested while session running; stopping active run first', { sessionId, cwd });
+      this.stopSession(sessionId);
+    }
+    const mountedPaths = this.buildMountedPaths(cwd);
     // Clear claude_session_id in DB so next query creates a new SDK session
     // (Claude SDK sessions cannot change cwd mid-session)
     this.db.sessions.update(sessionId, { 
       cwd, 
+      mounted_paths: JSON.stringify(mountedPaths),
       claude_session_id: null,
       openai_thread_id: null,
       updated_at: Date.now() 
@@ -859,6 +1019,11 @@ export class SessionManager {
     if (this.agentRunner?.clearSdkSession) {
       this.agentRunner.clearSdkSession(sessionId);
     }
+
+    this.sendToRenderer({
+      type: 'session.update',
+      payload: { sessionId, updates: { cwd, mountedPaths } },
+    });
     
     log('[SessionManager] Session cwd updated:', sessionId, '->', cwd, '(SDK session cleared)');
   }
@@ -945,6 +1110,9 @@ export class SessionManager {
 
   // Handle user's response to AskUserQuestion
   handleQuestionResponse(questionId: string, answer: string): void {
+    for (const runner of this.responsesFallbackRunnerBySession.values()) {
+      runner.handleQuestionResponse(questionId, answer);
+    }
     this.agentRunner.handleQuestionResponse(questionId, answer);
   }
 

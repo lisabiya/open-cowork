@@ -129,7 +129,7 @@ export interface ScheduleTask {
 }
 
 export interface ScheduleCreateInput {
-  title: string;
+  title?: string;
   prompt: string;
   cwd: string;
   runAt: number;

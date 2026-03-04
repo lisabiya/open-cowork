@@ -32,15 +32,18 @@ describe('SettingsPanel schedule tab entry', () => {
     expect(settingsPanelContent).toContain('执行时间必须晚于当前时间；如需立刻执行请使用“立即执行”');
   });
 
-  it('builds schedule titles from prompt with fixed prefix', () => {
+  it('shows model-generated title hints and only regenerates on prompt change', () => {
     expect(settingsPanelContent).toContain('自动标题（用于会话区分）');
-    expect(settingsPanelContent).toContain('buildScheduledTaskTitle(trimmedPrompt)');
-    expect(settingsPanelContent).toContain('buildScheduledTaskTitle(task.prompt)');
+    expect(settingsPanelContent).toContain('保存后将自动生成：[定时任务] + 模型摘要');
+    expect(settingsPanelContent).toContain('shouldRegenerateTitle');
+    expect(settingsPanelContent).toContain('检测到 Prompt 已修改，保存后会重新生成标题。');
+    expect(settingsPanelContent).toContain('未修改 Prompt 时将保留现有标题。');
   });
 
   it('renders schedule rule and last-run details for better task readability', () => {
     expect(settingsPanelContent).toContain('执行策略：{formatScheduleRule(task)}');
     expect(settingsPanelContent).toContain('上次执行：{task.lastRunAt === null ? \'尚未执行\' : formatTime(task.lastRunAt)}');
+    expect(settingsPanelContent).toContain('{task.title}');
     expect(settingsPanelContent).toContain('最近会话：{task.lastRunSessionId}');
   });
 

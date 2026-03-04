@@ -53,7 +53,8 @@ export function ChatView() {
   const activeTurn = activeSessionId ? activeTurnsBySession[activeSessionId] : null;
   const hasActiveTurn = Boolean(activeTurn);
   const pendingCount = pendingTurns.length;
-  const canStop = hasActiveTurn || pendingCount > 0;
+  const isSessionRunning = activeSession?.status === 'running';
+  const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
 
   const displayedMessages = useMemo(() => {
     if (!activeSessionId) return messages;

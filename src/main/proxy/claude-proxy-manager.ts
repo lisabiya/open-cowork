@@ -60,7 +60,10 @@ interface ResolvedPythonRuntime {
   source: 'bundled' | 'venv';
 }
 
+let _cachedVendorRoot: string | null | undefined;
 function resolveVendorRoot(): string | null {
+  if (_cachedVendorRoot !== undefined) return _cachedVendorRoot;
+
   let appPathCandidate = '';
   try {
     if (typeof app?.getAppPath === 'function') {
@@ -82,9 +85,11 @@ function resolveVendorRoot(): string | null {
 
   for (const candidate of candidates) {
     if (fs.existsSync(path.join(candidate, 'server.py'))) {
+      _cachedVendorRoot = candidate;
       return candidate;
     }
   }
+  _cachedVendorRoot = null;
   return null;
 }
 
@@ -403,6 +408,9 @@ export class ClaudeProxyManager {
   private activeStates = new Map<string, ActiveProxyState>();
   private latestSignature: string | null = null;
   private operationQueue: Promise<unknown> = Promise.resolve();
+  private _cachedPythonRuntime: ResolvedPythonRuntime | null = null;
+  private _warmupPromise: Promise<void> | null = null;
+  private _warmupStatus: 'idle' | 'warming' | 'ready' | 'failed' = 'idle';
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.operationQueue.then(operation, operation);
@@ -413,6 +421,8 @@ export class ClaudeProxyManager {
   isEnabled(): boolean {
     return process.env.COWORK_DISABLE_CLAUDE_PROXY !== '1';
   }
+
+  get warmupStatus() { return this._warmupStatus; }
 
   getCurrentState(): ClaudeProxyRuntimeState | null {
     const latest = this.latestSignature ? this.activeStates.get(this.latestSignature) : null;
@@ -464,24 +474,57 @@ export class ClaudeProxyManager {
       await this.pruneStaleStates(new Set());
       return;
     }
-    await this.ensureReady(decision.profile);
+    this._warmupStatus = 'warming';
+    this._warmupPromise = (async () => {
+      await this.ensureReady(decision.profile!);
+    })();
+    try {
+      await this._warmupPromise;
+      this._warmupStatus = 'ready';
+    } catch (err) {
+      this._warmupStatus = 'failed';
+      throw err;
+    }
+  }
+
+  async awaitWarmup(timeoutMs = 5000): Promise<boolean> {
+    if (!this._warmupPromise || this._warmupStatus === 'ready') return true;
+    if (this._warmupStatus === 'failed') return false;
+    try {
+      await Promise.race([
+        this._warmupPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('warmup_timeout')), timeoutMs)),
+      ]);
+      return true;
+    } catch { return false; }
   }
 
   async ensureReady(profile: UnifiedGatewayProfile): Promise<ClaudeProxyRuntimeState> {
-    return this.enqueue(async () => {
-      if (!this.isEnabled()) {
-        throw new Error('proxy_boot_failed:disabled_by_env');
-      }
+    if (!this.isEnabled()) {
+      throw new Error('proxy_boot_failed:disabled_by_env');
+    }
 
-      const signature = buildProfileSignature(profile);
-      const existingState = this.activeStates.get(signature);
-      if (existingState && existingState.process.exitCode === null) {
-        existingState.lastUsedAt = Date.now();
+    const signature = buildProfileSignature(profile);
+
+    // Lock-free fast path: warm proxy available, skip the queue entirely.
+    const existing = this.activeStates.get(signature);
+    if (existing && existing.process.exitCode === null) {
+      existing.lastUsedAt = Date.now();
+      this.latestSignature = signature;
+      void this.pruneStaleStates(new Set([signature]));
+      const { process: _process, logs: _logs, ...rest } = existing;
+      return rest;
+    }
+
+    // Cold path: serialize through the queue (spawn is not idempotent).
+    return this.enqueue(async () => {
+      // Re-check: another caller may have spawned it while we waited.
+      const rechecked = this.activeStates.get(signature);
+      if (rechecked && rechecked.process.exitCode === null) {
+        rechecked.lastUsedAt = Date.now();
         this.latestSignature = signature;
-        // Don't await pruning on the happy path — let it run in the background
-        // while the caller already has a valid proxy reference.
         void this.pruneStaleStates(new Set([signature]));
-        const { process: _process, logs: _logs, ...rest } = existingState;
+        const { process: _process, logs: _logs, ...rest } = rechecked;
         return rest;
       }
 
@@ -578,8 +621,11 @@ export class ClaudeProxyManager {
   }
 
   private async ensurePythonRuntime(vendorRoot: string): Promise<ResolvedPythonRuntime> {
+    if (this._cachedPythonRuntime) return this._cachedPythonRuntime;
+
     const bundledRuntime = resolveBundledPythonRuntime();
     if (bundledRuntime) {
+      this._cachedPythonRuntime = bundledRuntime;
       return bundledRuntime;
     }
 
@@ -591,11 +637,13 @@ export class ClaudeProxyManager {
     const marker = fs.existsSync(markerFile) ? fs.readFileSync(markerFile, 'utf-8').trim() : '';
 
     if (fs.existsSync(venvPython) && marker === PROXY_REQUIREMENTS_FINGERPRINT) {
-      return {
+      const result: ResolvedPythonRuntime = {
         python: venvPython,
         env: { ...process.env },
         source: 'venv',
       };
+      this._cachedPythonRuntime = result;
+      return result;
     }
 
     const bootstrapPython = resolveBootstrapPythonCandidate();
@@ -624,11 +672,13 @@ export class ClaudeProxyManager {
     );
 
     fs.writeFileSync(markerFile, PROXY_REQUIREMENTS_FINGERPRINT, 'utf-8');
-    return {
+    const result: ResolvedPythonRuntime = {
       python: venvPython,
       env: { ...process.env },
       source: 'venv',
     };
+    this._cachedPythonRuntime = result;
+    return result;
   }
 
   private async startInternal(

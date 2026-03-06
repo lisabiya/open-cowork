@@ -60,3 +60,4 @@ dist*
 resources/node
 resources/tools
 resources/python
+docs/plans/

@@ -158,7 +158,7 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
   return (
       <div className="flex h-full w-full overflow-hidden">
         {/* Sidebar */}
-        <div className={`${compactSidebar ? 'w-14' : 'w-48 lg:w-72'} bg-surface-hover border-r border-border flex flex-col flex-shrink-0`}>
+        <div className={`${compactSidebar ? 'w-14' : 'w-44 lg:w-56'} bg-surface-hover border-r border-border flex flex-col flex-shrink-0`}>
           {!compactSidebar && (
             <div className="p-4 border-b border-border">
               <h2 className="text-lg font-semibold text-text-primary">{t('settings.title')}</h2>
@@ -212,7 +212,7 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-3 lg:p-6">
-            {/* Lazy load tabs - only mount when first viewed, then keep mounted */}
+            <div className="max-w-[720px]">
             <div className={activeTab === 'api' ? '' : 'hidden'}>
               {viewedTabs.has('api') && <APISettingsTab />}
             </div>
@@ -239,6 +239,7 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
             </div>
             <div className={activeTab === 'language' ? '' : 'hidden'}>
               {viewedTabs.has('language') && <LanguageTab />}
+            </div>
             </div>
           </div>
         </div>
@@ -695,7 +696,7 @@ function SandboxTab() {
   // TODO: Re-enable when sandbox debugging is complete
   // async function handleToggleSandbox() {
   //   const newEnabled = !sandboxEnabled;
-  //   
+  //
   //   // Optimistically update UI
   //   setSandboxEnabled(newEnabled);
   //   setError('');
@@ -704,7 +705,7 @@ function SandboxTab() {
   //   try {
   //     await window.electronAPI.config.save({ sandboxEnabled: newEnabled });
   //     setSuccess(newEnabled ? t('sandbox.enabledWillSetup') : t('sandbox.disabled'));
-  //     
+  //
   //     // Clear success message after delay
   //     const timer = setTimeout(() => setSuccess(''), 3000);
   //     return () => clearTimeout(timer);
@@ -918,30 +919,19 @@ function SandboxTab() {
       )}
 
       {/* Enable/Disable Toggle - Temporarily Disabled */}
-      <div className="p-4 rounded-xl bg-surface border-2 border-border opacity-60">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-surface-muted text-text-muted">
-              <Shield className="w-6 h-6" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-base font-semibold text-text-primary">{t('sandbox.enableSandbox')}</h3>
-              <p className="text-sm text-warning mt-0.5">
-                🚧 功能调试中，暂时不支持
-              </p>
-            </div>
-          </div>
-          {/* Toggle switch - disabled */}
-          <button
-            disabled={true}
-            aria-label="Sandbox temporarily unavailable"
-            title="功能调试中，暂时不支持"
-            className="relative inline-flex h-8 w-14 items-center rounded-full transition-all duration-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 bg-gray-300 dark:bg-gray-600"
-          >
-            <span
-              className="inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-200 translate-x-1"
-            />
-          </button>
+      <div className="p-6 rounded-xl bg-surface border border-border text-center space-y-4">
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto bg-surface-muted text-text-muted">
+          <Shield className="w-8 h-8" />
+        </div>
+        <div>
+          <h3 className="text-base font-semibold text-text-primary">{t('sandbox.enableSandbox')}</h3>
+          <p className="text-sm text-text-muted mt-1">
+            {isWindows ? t('sandbox.wslDesc') : isMac ? t('sandbox.limaDesc') : t('sandbox.nativeDesc')}
+          </p>
+        </div>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-warning/10 text-warning text-xs font-medium">
+          <span>🚧</span>
+          <span>{t('sandbox.comingSoon')}</span>
         </div>
       </div>
 

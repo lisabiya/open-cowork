@@ -38,12 +38,12 @@ module.exports = {
           secondary: 'var(--color-text-secondary)',
           muted: 'var(--color-text-muted)',
         },
-        success: '#22c55e',
-        warning: '#eab308',
-        error: '#df6666',
+        success: '#6b9b76',
+        warning: '#c9952a',
+        error: '#c9584f',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'SF Mono', 'Menlo', 'monospace'],
       },
       boxShadow: {

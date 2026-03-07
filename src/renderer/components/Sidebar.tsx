@@ -11,6 +11,7 @@ import {
   Sun,
   Settings,
   Trash,
+  Search as SearchIcon,
 } from 'lucide-react';
 
 export function Sidebar() {
@@ -35,6 +36,11 @@ export function Sidebar() {
   const { deleteSession, getSessionMessages, getSessionTraceSteps, isElectron } = useIPC();
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [loadingSession, setLoadingSession] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredSessions = searchQuery.trim()
+    ? sessions.filter(s => s.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    : sessions;
 
   // Handle session click - load messages if needed
   const handleSessionClick = useCallback(async (sessionId: string) => {
@@ -217,17 +223,33 @@ export function Sidebar() {
           </div>
         )}
 
+        {/* Search */}
+        {!sidebarCollapsed && sessions.length > 8 && (
+          <div className="px-3 pb-2">
+            <div className="relative">
+              <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t('sidebar.search')}
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-surface-hover border border-border text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40"
+              />
+            </div>
+          </div>
+        )}
+
         <div className="space-y-1">
           {sidebarCollapsed ? (
             <div className="flex justify-center py-6 text-text-muted">
               <ChevronRight className="w-4 h-4 opacity-40" />
             </div>
-          ) : sessions.length === 0 ? (
+          ) : filteredSessions.length === 0 ? (
             <div className="text-center py-6 text-text-muted text-sm">
               <p>{t('sidebar.noTasks')}</p>
             </div>
           ) : (
-            sessions.map((session) => (
+            filteredSessions.map((session) => (
               <div
                 key={session.id}
                 onClick={() => handleSessionClick(session.id)}
@@ -288,24 +310,22 @@ export function Sidebar() {
             onClick={() => setShowSettings(true)}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-surface-hover transition-colors group"
           >
-            <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
-              U
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent to-accent/70 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0 shadow-sm">
+              OC
             </div>
             <div className="flex-1 min-w-0 text-left">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-text-primary">{t('sidebar.user')}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-medium text-text-primary truncate">Open Cowork</span>
                 <span
-                  className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isConfigured ? 'bg-success' : 'bg-amber-500'}`}
+                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isConfigured ? 'bg-success' : 'bg-warning'}`}
                   title={isConfigured ? t('sidebar.apiConfigured') : t('sidebar.apiNotConfigured')}
                 />
               </div>
-              <p className="text-xs text-text-muted">
+              <p className="text-[11px] text-text-muted truncate">
                 {isConfigured ? t('sidebar.apiConfigured') : t('sidebar.apiNotConfigured')}
               </p>
             </div>
-            <div className="flex items-center gap-1.5 text-text-muted group-hover:text-text-primary transition-colors">
-            <Settings className="w-4 h-4" />
-            </div>
+            <Settings className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors flex-shrink-0" />
           </button>
         )}
       </div>

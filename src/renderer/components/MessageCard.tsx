@@ -132,7 +132,7 @@ export const MessageCard = memo(function MessageCard({ message, isStreaming }: M
         </div>
       ) : (
         // Assistant message — no bubble, direct content (Claude style)
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {contentBlocks.map((block, index) => {
             // Skip tool_result blocks that are merged into their tool_use card
             if (block.type === 'tool_result' && mergedResultIds.has((block as ToolResultContent).toolUseId)) {
@@ -505,7 +505,7 @@ function ToolUseBlock({ block, allBlocks, message }: { block: ToolUseContent; al
 
   return (
     <div
-      className={`rounded-xl border overflow-hidden transition-colors ${
+      className={`rounded-lg border overflow-hidden transition-colors ${
         isError
           ? 'border-error/30 bg-error/5'
           : isRunning
@@ -516,7 +516,7 @@ function ToolUseBlock({ block, allBlocks, message }: { block: ToolUseContent; al
       {/* Header — always visible */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-surface-hover/50 transition-colors"
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-surface-hover/50 transition-colors"
       >
         {/* Status icon */}
         <div className={`flex-shrink-0 ${

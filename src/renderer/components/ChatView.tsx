@@ -751,7 +751,7 @@ export function ChatView() {
               </div>
             </div>
 
-            <p className="text-xs text-text-muted text-center mt-2">
+            <p className="text-[11px] text-text-muted/60 text-center mt-2">
               Open Cowork is AI-powered and may make mistakes. Please double-check responses.
             </p>
           </form>

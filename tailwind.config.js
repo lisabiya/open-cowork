@@ -26,7 +26,6 @@ module.exports = {
         },
         accent: {
           DEFAULT: 'var(--color-accent)',
-          light: '#e8917a',
           hover: 'var(--color-accent-hover)',
           muted: 'var(--color-accent-muted)',
         },

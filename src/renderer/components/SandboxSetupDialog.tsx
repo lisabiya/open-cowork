@@ -83,7 +83,7 @@ export function SandboxSetupDialog({ progress, onComplete }: Props) {
     <div 
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-500 ${fadeOut ? 'opacity-0' : 'opacity-100'}`}
     >
-      <div className="bg-surface border border-border rounded-3xl shadow-xl max-w-md w-full mx-4 overflow-hidden">
+      <div className="bg-surface border border-border rounded-2xl shadow-elevated max-w-md w-full mx-4 overflow-hidden">
         {/* Header */}
         <div className="bg-accent-muted px-6 py-5 border-b border-border">
           <div className="flex items-center gap-3">

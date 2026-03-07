@@ -111,6 +111,10 @@
     @apply bg-transparent hover:bg-surface-active text-text-secondary hover:text-text-primary;
   }
 
+  .btn-danger {
+    @apply bg-transparent border border-error/30 text-error hover:bg-error/10;
+  }
+
   /* Input styles */
   .input {
     @apply w-full px-4 py-3 rounded-xl bg-surface border border-border;

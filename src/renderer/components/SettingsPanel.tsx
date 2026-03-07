@@ -57,10 +57,10 @@ interface MCPServerStatus {
 
 interface SettingsPanelProps {
   onClose: () => void;
-  initialTab?: 'api' | 'sandbox' | 'credentials' | 'connectors' | 'skills' | 'schedule' | 'remote' | 'logs' | 'language';
+  initialTab?: 'api' | 'sandbox' | 'credentials' | 'connectors' | 'skills' | 'schedule' | 'remote' | 'logs' | 'general';
 }
 
-type TabId = 'api' | 'sandbox' | 'credentials' | 'connectors' | 'skills' | 'schedule' | 'remote' | 'logs' | 'language';
+type TabId = 'api' | 'sandbox' | 'credentials' | 'connectors' | 'skills' | 'schedule' | 'remote' | 'logs' | 'general';
 
 const SERVICE_OPTIONS = [
   { value: 'gmail', label: 'Gmail' },
@@ -112,7 +112,7 @@ const SCHEDULE_MODE_OPTIONS: Array<{ value: ScheduleFormMode; label: string }> =
 
 // ==================== Main Component ====================
 
-const VALID_TABS = new Set<TabId>(['api', 'sandbox', 'credentials', 'connectors', 'skills', 'schedule', 'remote', 'logs', 'language']);
+const VALID_TABS = new Set<TabId>(['api', 'sandbox', 'credentials', 'connectors', 'skills', 'schedule', 'remote', 'logs', 'general']);
 
 export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProps) {
   const { t } = useTranslation();
@@ -127,6 +127,14 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
   const [activeTab, setActiveTab] = useState<TabId>(resolvedInitial);
   // Track which tabs have been viewed at least once (for lazy loading)
   const [viewedTabs, setViewedTabs] = useState<Set<TabId>>(new Set([resolvedInitial]));
+  const [appVersion, setAppVersion] = useState('');
+  useEffect(() => {
+    try {
+      const v = window.electronAPI?.getVersion?.();
+      if (v instanceof Promise) v.then(setAppVersion);
+      else if (v) setAppVersion(v);
+    } catch { /* ignore */ }
+  }, []);
 
   // Consume the store signal and apply tab in one effect
   useEffect(() => {
@@ -152,7 +160,7 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
     { id: 'schedule' as TabId, label: t('settings.schedule'), icon: Clock3, description: t('settings.scheduleDesc') },
     { id: 'remote' as TabId, label: t('settings.remote', '远程控制'), icon: Wifi, description: t('settings.remoteDesc', '通过飞书等平台远程使用') },
     { id: 'logs' as TabId, label: t('settings.logs'), icon: AlertCircle, description: t('settings.logsDesc') },
-    { id: 'language' as TabId, label: t('settings.language'), icon: Languages, description: t('settings.languageDesc') },
+    { id: 'general' as TabId, label: t('settings.general'), icon: Globe, description: t('settings.generalDesc') },
   ];
 
   return (
@@ -195,6 +203,9 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
             >
               {compactSidebar ? <X className="w-4 h-4 mx-auto" /> : t('common.close')}
             </button>
+            {!compactSidebar && (
+              <p className="text-[10px] text-text-muted text-center mt-2 select-text">v{appVersion}</p>
+            )}
           </div>
         </div>
 
@@ -237,8 +248,8 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
             <div className={activeTab === 'logs' ? '' : 'hidden'}>
               {viewedTabs.has('logs') && <LogsTab />}
             </div>
-            <div className={activeTab === 'language' ? '' : 'hidden'}>
-              {viewedTabs.has('language') && <LanguageTab />}
+            <div className={activeTab === 'general' ? '' : 'hidden'}>
+              {viewedTabs.has('general') && <GeneralTab />}
             </div>
             </div>
           </div>
@@ -2799,7 +2810,7 @@ function SkillsTab() {
 
       {isPluginModalOpen && (
         <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+          <div className="w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-2xl border border-border bg-surface shadow-elevated">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h3 className="text-lg font-semibold text-text-primary">{t('skills.pluginListTitle')}</h3>
               <button
@@ -2965,7 +2976,7 @@ function SkillsTab() {
       )}
 
       {pluginToastMessage && (
-        <div className="fixed right-6 bottom-6 z-[80] max-w-md rounded-xl border border-success/30 bg-surface px-4 py-3 shadow-xl">
+        <div className="fixed right-6 bottom-6 z-[80] max-w-md rounded-xl border border-success/30 bg-surface px-4 py-3 shadow-elevated">
           <div className="flex items-start gap-2 text-success text-sm">
             <CheckCircle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>{pluginToastMessage}</span>
@@ -3699,7 +3710,7 @@ function ScheduleSelectMenu(props: {
         <ChevronDown className={`h-4 w-4 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-64 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-2xl">
+        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-64 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-elevated">
           {options.map((option) => {
             const selected = isMulti
               ? values.includes(option.value)
@@ -3857,7 +3868,7 @@ function TimeMultiSelectMenu(props: {
                       key={time}
                       type="button"
                       onClick={() => onRemove(time)}
-                      className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-white px-3 py-1 text-sm text-accent shadow-sm"
+                      className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-surface px-3 py-1 text-sm text-accent shadow-sm"
                     >
                       <span>{time}</span>
                       <X className="h-3 w-3" />
@@ -4285,7 +4296,7 @@ function LogsTab() {
             }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              className={`inline-block h-4 w-4 transform rounded-full bg-text-primary transition-transform ${
                 devLogsEnabled ? 'translate-x-6' : 'translate-x-1'
               }`}
             />

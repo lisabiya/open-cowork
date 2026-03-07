@@ -49,8 +49,16 @@
     "scheduleDesc": "闹钟式自动执行 Prompt",
     "logs": "日志",
     "logsDesc": "查看和导出应用日志",
-    "language": "语言",
-    "languageDesc": "选择您喜欢的语言"
+    "general": "通用",
+    "generalDesc": "外观、语言等通用偏好"
+  },
+  "general": {
+    "appearance": "外观",
+    "theme": "主题",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeSystem": "跟随系统",
+    "language": "语言"
   },
   "language": {
     "english": "English",
@@ -155,6 +163,7 @@
     "limaDesc": "在 Lima 虚拟机中运行命令，在 macOS 上提供更好的隔离和安全性。",
     "nativeDesc": "命令直接在系统上运行（Linux 原生模式）。",
     "enableSandbox": "启用沙盒模式",
+    "comingSoon": "功能开发中，敬请期待",
     "readyStatus": "沙盒已就绪并运行中",
     "notReadyStatus": "沙盒已启用但未完全配置",
     "disabledStatus": "沙盒已禁用 - 命令直接在系统上运行",
@@ -322,6 +331,7 @@
     "recents": "最近",
     "expandToView": "展开查看任务",
     "noTasks": "暂无任务",
+    "search": "搜索对话...",
     "deleteAll": "删除所有对话",
     "localTasks": "这些任务在本地运行，不会在设备间同步。",
     "apiConfigured": "API 已配置",

@@ -116,7 +116,7 @@ export function ConfigModal({ isOpen, onClose, onSave, initialConfig, isFirstRun
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[88vh] overflow-hidden border border-border flex flex-col">
+      <div className="bg-surface rounded-2xl shadow-elevated w-full max-w-2xl mx-4 max-h-[88vh] overflow-hidden border border-border flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-3">

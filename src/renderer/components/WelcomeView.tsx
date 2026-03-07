@@ -407,12 +407,12 @@ export function WelcomeView() {
               <tag.icon className={`w-4 h-4 ${selectedTag === tag.id ? 'text-accent' : 'text-text-muted'}`} />
               <span>{tag.label}</span>
               {'requiresChrome' in tag && tag.requiresChrome && (
-                <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-black/5 text-text-muted dark:bg-white/10">
+                <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-surface-active text-text-muted">
                   {t('welcome.chromeRequired')}
                 </span>
               )}
               {'requiresNotion' in tag && tag.requiresNotion && (
-                <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-black/5 text-text-muted dark:bg-white/10">
+                <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-surface-active text-text-muted">
                   {t('welcome.notionRequired')}
                 </span>
               )}

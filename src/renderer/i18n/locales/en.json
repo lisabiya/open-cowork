@@ -49,8 +49,16 @@
     "scheduleDesc": "Alarm-style prompt automation",
     "logs": "Logs",
     "logsDesc": "View and export application logs",
-    "language": "Language",
-    "languageDesc": "Choose your preferred language"
+    "general": "General",
+    "generalDesc": "Appearance, language & preferences"
+  },
+  "general": {
+    "appearance": "Appearance",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System",
+    "language": "Language"
   },
   "language": {
     "english": "English",
@@ -155,6 +163,7 @@
     "limaDesc": "Run commands in Lima VM for better isolation and security on macOS.",
     "nativeDesc": "Commands run directly on your system (Linux native mode).",
     "enableSandbox": "Enable Sandbox Mode",
+    "comingSoon": "Coming soon — under development",
     "readyStatus": "Sandbox ready and running",
     "notReadyStatus": "Sandbox enabled but not fully configured",
     "disabledStatus": "Sandbox disabled - commands run directly on system",
@@ -322,6 +331,7 @@
     "recents": "Recents",
     "expandToView": "Expand to view tasks",
     "noTasks": "No tasks yet",
+    "search": "Search conversations...",
     "deleteAll": "Delete all conversations",
     "localTasks": "These tasks run locally and aren't synced across devices.",
     "apiConfigured": "API Configured",

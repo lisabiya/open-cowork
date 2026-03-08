@@ -219,7 +219,7 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
             </button>
           </div>
           <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 lg:p-6">
-            <div className="max-w-[720px] w-full min-w-0">
+            <div className="max-w-[720px] w-full min-w-0 mx-auto">
             <div className={activeTab === 'api' ? '' : 'hidden'}>
               {viewedTabs.has('api') && (
                 <>

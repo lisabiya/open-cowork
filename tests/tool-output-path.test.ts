@@ -22,6 +22,35 @@ describe('extractFilePathFromToolOutput', () => {
     expect(extractFilePathFromToolOutput(output)).toBe('/tmp/demo.txt');
   });
 
+  it('extracts relative path from wrapped write tool output', () => {
+    const output = JSON.stringify({
+      content: [
+        {
+          type: 'text',
+          text: 'Successfully wrote 2986 bytes to agent_papers_summary.html',
+        },
+      ],
+    });
+    expect(extractFilePathFromToolOutput(output)).toBe('agent_papers_summary.html');
+  });
+
+  it('extracts absolute path from updated-file messages', () => {
+    const output = 'The file /Users/haoqing/Library/Application Support/open-cowork/default_working_dir/slide2.html has been updated successfully.';
+    expect(extractFilePathFromToolOutput(output)).toBe('/Users/haoqing/Library/Application Support/open-cowork/default_working_dir/slide2.html');
+  });
+
+  it('extracts screenshot path from wrapped screenshot output', () => {
+    const output = JSON.stringify({
+      content: [
+        {
+          type: 'text',
+          text: 'Took a screenshot of the full current page.\nSaved screenshot to /Users/haoqing/Desktop/open-cowork/agent_papers_summary_screenshot.png.',
+        },
+      ],
+    });
+    expect(extractFilePathFromToolOutput(output)).toBe('/Users/haoqing/Desktop/open-cowork/agent_papers_summary_screenshot.png');
+  });
+
   it('returns null for unrelated output', () => {
     expect(extractFilePathFromToolOutput('OK')).toBeNull();
   });

@@ -1,6 +1,10 @@
 type ParsedOutput = {
   path?: string;
   filePath?: string;
+  content?: Array<{
+    type?: string;
+    text?: string;
+  }>;
 };
 
 type ParsedInput = {
@@ -29,18 +33,22 @@ export function extractFilePathFromToolOutput(toolOutput?: string): string | nul
       if (typeof parsed.path === 'string' && parsed.path.trim()) {
         return parsed.path.trim();
       }
+      if (Array.isArray(parsed.content)) {
+        const textContent = parsed.content
+          .map((item) => (item && typeof item.text === 'string' ? item.text : ''))
+          .filter(Boolean)
+          .join('\n');
+        const nestedPath = extractFilePathFromText(textContent);
+        if (nestedPath) {
+          return nestedPath;
+        }
+      }
     }
   } catch {
     // ignore JSON parse failures
   }
 
-  const match = trimmed.match(/File (?:written|edited):\s*(.+)$/i)
-    || trimmed.match(/File created successfully at:?\s*(.+)$/i);
-  if (match && match[1]) {
-    return match[1].trim();
-  }
-
-  return null;
+  return extractFilePathFromText(trimmed);
 }
 
 export function extractFilePathFromToolInput(
@@ -59,4 +67,21 @@ export function extractFilePathFromToolInput(
   }
 
   return null;
+}
+
+function extractFilePathFromText(text: string): string | null {
+  const match = text.match(/File (?:written|edited):\s*(.+)$/i)
+    || text.match(/File created successfully at:?\s*(.+)$/i)
+    || text.match(/Successfully wrote \d+ bytes to ([^\n]+)/i)
+    || text.match(/The file (.+?) has been updated(?: successfully)?(?:\.|$)/i)
+    || text.match(/Saved screenshot to ([^\n]+)/i);
+  if (!match || !match[1]) {
+    return null;
+  }
+
+  return sanitizeMatchedPath(match[1]);
+}
+
+function sanitizeMatchedPath(value: string): string {
+  return value.trim().replace(/[.,;:!?]+$/, '');
 }

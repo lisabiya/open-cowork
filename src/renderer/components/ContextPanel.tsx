@@ -48,6 +48,11 @@ export function ContextPanel() {
   const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>([]);
   const [copiedPath, setCopiedPath] = useState(false);
   const [isChangingDir, setIsChangingDir] = useState(false);
+  const [recentWorkspaceFiles, setRecentWorkspaceFiles] = useState<Array<{
+    path: string;
+    modifiedAt: number;
+    size: number;
+  }>>([]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -86,6 +91,83 @@ export function ContextPanel() {
     }
     return { input, output, total: input + output };
   }, [messages]);
+
+  useEffect(() => {
+    if (
+      typeof window === 'undefined'
+      || !window.electronAPI?.artifacts?.listRecentFiles
+      || !currentWorkingDir
+      || !activeSession?.createdAt
+    ) {
+      setRecentWorkspaceFiles([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadRecentWorkspaceFiles = async () => {
+      try {
+        const files = await window.electronAPI.artifacts.listRecentFiles(
+          currentWorkingDir,
+          activeSession.createdAt,
+          50
+        );
+        if (!cancelled) {
+          setRecentWorkspaceFiles(files || []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load recent workspace files:', error);
+          setRecentWorkspaceFiles([]);
+        }
+      }
+    };
+
+    void loadRecentWorkspaceFiles();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession?.createdAt, activeSessionId, currentWorkingDir, steps.length]);
+
+  const displayArtifacts = useMemo(() => {
+    const seenPaths = new Set<string>();
+    const items: Array<{ label: string; path: string }> = [];
+
+    for (const step of displayArtifactSteps) {
+      const fallbackPath = extractFilePathFromToolOutput(step.toolOutput)
+        || extractFilePathFromToolInput(step.toolInput);
+      if (!fallbackPath) {
+        continue;
+      }
+
+      const resolvedPath = resolveArtifactPath(fallbackPath, currentWorkingDir);
+      const key = resolvedPath.trim();
+      if (!key || seenPaths.has(key)) {
+        continue;
+      }
+
+      seenPaths.add(key);
+      items.push({
+        label: getArtifactLabel(fallbackPath),
+        path: resolvedPath,
+      });
+    }
+
+    for (const file of recentWorkspaceFiles) {
+      const resolvedPath = resolveArtifactPath(file.path, currentWorkingDir);
+      const key = resolvedPath.trim();
+      if (!key || seenPaths.has(key)) {
+        continue;
+      }
+
+      seenPaths.add(key);
+      items.push({
+        label: getArtifactLabel(file.path),
+        path: resolvedPath,
+      });
+    }
+
+    return items;
+  }, [currentWorkingDir, displayArtifactSteps, recentWorkspaceFiles]);
 
   // Load MCP servers on mount
   useEffect(() => {
@@ -173,18 +255,13 @@ export function ContextPanel() {
         {artifactsOpen && (
           <div className="px-4 pb-4 max-h-80 overflow-y-auto">
             {/* Extract artifacts from trace steps */}
-            {displayArtifactSteps.length === 0 ? (
+            {displayArtifacts.length === 0 ? (
               <p className="text-xs text-text-muted">{t('context.noArtifactsYet')}</p>
             ) : (
               <div className="space-y-1">
-                {displayArtifactSteps.map((step, index) => {
-                  const fallbackPath = extractFilePathFromToolOutput(step.toolOutput)
-                    || extractFilePathFromToolInput(step.toolInput);
-                  const resolvedFallbackPath = fallbackPath
-                    ? resolveArtifactPath(fallbackPath, currentWorkingDir)
-                    : '';
-                  const label = fallbackPath ? getArtifactLabel(fallbackPath) : t('context.fileCreated');
-                  const artifactPath = resolvedFallbackPath;
+                {displayArtifacts.map((artifact, index) => {
+                  const label = artifact.label || t('context.fileCreated');
+                  const artifactPath = artifact.path;
                   const canClick = Boolean(artifactPath && canShowItemInFolder);
                   const iconComponent = getArtifactIconComponent(label);
                   const IconComponent =

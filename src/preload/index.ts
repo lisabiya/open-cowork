@@ -82,6 +82,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Select files using native dialog
   selectFiles: (): Promise<string[]> => ipcRenderer.invoke('dialog.selectFiles'),
 
+  artifacts: {
+    listRecentFiles: (
+      cwd: string,
+      sinceMs: number,
+      limit = 50
+    ): Promise<Array<{ path: string; modifiedAt: number; size: number }>> =>
+      ipcRenderer.invoke('artifacts.listRecentFiles', cwd, sinceMs, limit),
+  },
+
   // Config methods
   config: {
     get: (): Promise<AppConfig> => ipcRenderer.invoke('config.get'),
@@ -339,6 +348,13 @@ declare global {
       openExternal: (url: string) => Promise<boolean>;
       showItemInFolder: (filePath: string, cwd?: string) => Promise<boolean>;
       selectFiles: () => Promise<string[]>;
+      artifacts: {
+        listRecentFiles: (
+          cwd: string,
+          sinceMs: number,
+          limit?: number
+        ) => Promise<Array<{ path: string; modifiedAt: number; size: number }>>;
+      };
       config: {
         get: () => Promise<AppConfig>;
         getPresets: () => Promise<ProviderPresets>;

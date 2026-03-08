@@ -368,7 +368,13 @@
     "fileCreated": "文件已创建",
     "callNumber": "调用 #{{number}}",
     "input": "输入：",
-    "output": "输出："
+    "output": "输出：",
+    "tokenUsage": "Token 用量",
+    "inputTokens": "输入",
+    "outputTokens": "输出",
+    "totalTokens": "总计",
+    "changeDir": "更改目录",
+    "copyPath": "复制路径"
   },
   "messageCard": {
     "request": "请求"

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { resolveArtifactPath } from '../utils/artifact-path';
@@ -20,37 +20,31 @@ import {
   Image as ImageIcon,
   FolderOpen,
   FolderSync,
-  Globe,
   File,
   Check,
   Loader2,
-  AlertCircle,
-  Terminal,
-  Search,
-  Eye,
-  Edit,
   Plug,
   Wrench,
+  MessageSquare,
+  Clock,
+  Cpu,
+  Copy,
 } from 'lucide-react';
-import type { TraceStep, TraceStepStatus, MCPServerInfo } from '../types';
+import type { TraceStep, MCPServerInfo } from '../types';
 
 export function ContextPanel() {
   const { t } = useTranslation();
-  const {
-    activeSessionId,
-    sessions,
-    traceStepsBySession,
-    activeTurnsBySession,
-    pendingTurnsBySession,
-    contextPanelCollapsed,
-    toggleContextPanel,
-    workingDir,
-    setGlobalNotice,
-  } = useAppStore();
+  const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const sessions = useAppStore((s) => s.sessions);
+  const traceStepsBySession = useAppStore((s) => s.traceStepsBySession);
+  const messagesBySession = useAppStore((s) => s.messagesBySession);
+  const appConfig = useAppStore((s) => s.appConfig);
+  const contextPanelCollapsed = useAppStore((s) => s.contextPanelCollapsed);
+  const toggleContextPanel = useAppStore((s) => s.toggleContextPanel);
+  const workingDir = useAppStore((s) => s.workingDir);
+  const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const { getMCPServers, changeWorkingDir } = useIPC();
-  const [progressOpen, setProgressOpen] = useState(true);
   const [artifactsOpen, setArtifactsOpen] = useState(true);
-  const [contextOpen, setContextOpen] = useState(true);
   const [expandedConnector, setExpandedConnector] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>([]);
   const [copiedPath, setCopiedPath] = useState(false);
@@ -67,13 +61,43 @@ export function ContextPanel() {
   };
 
   const steps = activeSessionId ? traceStepsBySession[activeSessionId] || [] : [];
-  const activeTurn = activeSessionId ? activeTurnsBySession[activeSessionId] : null;
-  const pendingCount = activeSessionId ? pendingTurnsBySession[activeSessionId]?.length ?? 0 : 0;
-  const isRunning = Boolean(activeTurn || pendingCount > 0);
   const activeSession = activeSessionId ? sessions.find(s => s.id === activeSessionId) : null;
   const currentWorkingDir = activeSession?.cwd || workingDir;
   const { artifactSteps, displayArtifactSteps } = getArtifactSteps(steps);
   const canShowItemInFolder = typeof window !== 'undefined' && !!window.electronAPI?.showItemInFolder;
+
+  // Session info computations
+  const messages = useMemo(
+    () => (activeSessionId ? messagesBySession[activeSessionId] || [] : []),
+    [activeSessionId, messagesBySession]
+  );
+  const messageCount = messages.length;
+  const toolCallCount = steps.filter((s) => s.type === 'tool_call').length;
+  const modelName = appConfig?.model || '—';
+
+  // Live duration timer
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!activeSession?.createdAt) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [activeSession?.createdAt]);
+
+  const duration = activeSession?.createdAt ? Math.max(0, now - activeSession.createdAt) : 0;
+  const durationStr = formatDuration(duration);
+
+  // Token usage aggregation
+  const tokenUsage = useMemo(() => {
+    let input = 0;
+    let output = 0;
+    for (const msg of messages) {
+      if (msg.tokenUsage) {
+        input += msg.tokenUsage.input || 0;
+        output += msg.tokenUsage.output || 0;
+      }
+    }
+    return { input, output, total: input + output };
+  }, [messages]);
 
   // Load MCP servers on mount
   useEffect(() => {
@@ -115,44 +139,50 @@ export function ContextPanel() {
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
-      {/* Progress Section */}
-      <div className="border-b border-border">
-        <button
-          onClick={() => setProgressOpen(!progressOpen)}
-          className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover transition-colors"
-        >
-          <span className="text-sm font-medium text-text-primary">{t('context.progress')}</span>
+
+      {/* Session Info Card */}
+      {activeSession && (
+        <div className="px-4 py-3 border-b border-border space-y-2">
           <div className="flex items-center gap-2">
-            {steps.filter(s => s.status === 'running').length > 0 && (
-              <Loader2 className="w-4 h-4 text-accent animate-spin" />
-            )}
-            {steps.filter(s => s.status === 'running').length === 0 && isRunning && (
-              <Loader2 className="w-4 h-4 text-accent animate-spin" />
-            )}
-            {progressOpen ? (
-              <ChevronUp className="w-4 h-4 text-text-muted" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-text-muted" />
-            )}
+            <Cpu className="w-3.5 h-3.5 text-accent flex-shrink-0" />
+            <span className="text-sm font-medium text-text-primary truncate">{modelName}</span>
           </div>
-        </button>
-        
-        {progressOpen && (
-          <div className="px-4 pb-4 max-h-80 overflow-y-auto">
-            {steps.length === 0 ? (
-              <p className="text-xs text-text-muted">
-                {pendingCount > 0 ? t('context.queuedMessages', { count: pendingCount }) : t('context.stepsWillShow')}
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {getGroupedSteps(steps).map((group) => (
-                  <TraceStepGroupItem key={group.id} group={group} />
-                ))}
-              </div>
-            )}
+          <div className="flex items-center gap-3 text-xs text-text-muted">
+            <span className="flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {durationStr}
+            </span>
+            <span className="flex items-center gap-1">
+              <MessageSquare className="w-3 h-3" />
+              {messageCount}
+            </span>
+            <span className="flex items-center gap-1">
+              <Wrench className="w-3 h-3" />
+              {toolCallCount}
+            </span>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Token Usage */}
+      {tokenUsage.total > 0 && (
+        <div className="px-4 py-3 border-b border-border space-y-2">
+          <p className="text-xs font-medium text-text-muted">{t('context.tokenUsage')}</p>
+          <div className="w-full h-1.5 bg-surface-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent rounded-full transition-all"
+              style={{ width: `${Math.min(100, (tokenUsage.total / 200_000) * 100)}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-xs text-text-muted">
+            <span>{t('context.inputTokens')}: {formatTokenCount(tokenUsage.input)}</span>
+            <span>{t('context.outputTokens')}: {formatTokenCount(tokenUsage.output)}</span>
+          </div>
+          <p className="text-xs text-text-muted text-center">
+            {t('context.totalTokens')}: {formatTokenCount(tokenUsage.total)} / 200k
+          </p>
+        </div>
+      )}
 
       {/* Artifacts Section */}
       <div className="border-b border-border">
@@ -232,115 +262,67 @@ export function ContextPanel() {
         )}
       </div>
 
-      {/* Context Section */}
-      <div className="flex-1 overflow-y-auto">
-        <button
-          onClick={() => setContextOpen(!contextOpen)}
-          className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover transition-colors"
-        >
-          <span className="text-sm font-medium text-text-primary">{t('context.context')}</span>
-          {contextOpen ? (
-            <ChevronUp className="w-4 h-4 text-text-muted" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-text-muted" />
+      {/* Working Directory */}
+      <div className="px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-2 min-w-0">
+          <FolderOpen className="w-3.5 h-3.5 text-accent flex-shrink-0" />
+          <span className="text-sm text-text-primary truncate flex-1" title={currentWorkingDir || ''}>
+            {currentWorkingDir ? formatPath(currentWorkingDir) : t('context.noFolderSelected')}
+          </span>
+          {currentWorkingDir && (
+            <button
+              onClick={() => handleCopyPath(currentWorkingDir)}
+              className="text-text-muted hover:text-text-primary transition-colors flex-shrink-0"
+              title={t('context.copyPath')}
+            >
+              {copiedPath ? (
+                <Check className="w-3.5 h-3.5 text-success" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
           )}
-        </button>
-        
-        {contextOpen && (
-          <div className="px-4 pb-4 space-y-4">
-            {/* Working Directory */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs text-text-muted">{t('context.workingDirectory')}</p>
-                <button
-                  onClick={async () => {
-                    setIsChangingDir(true);
-                    try {
-                      await changeWorkingDir(activeSessionId || undefined);
-                    } finally {
-                      setIsChangingDir(false);
-                    }
-                  }}
-                  disabled={isChangingDir}
-                  className="text-xs text-accent hover:text-accent-hover disabled:opacity-50 flex items-center gap-1 transition-colors"
-                  title={t('context.workingDirectory')}
-                >
-                  {isChangingDir ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <FolderSync className="w-3 h-3" />
-                  )}
-                  <span>{t('common.edit')}</span>
-                </button>
-              </div>
-              <div className="space-y-1">
-                {currentWorkingDir ? (
-                  <div 
-                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors min-w-0 ${
-                      copiedPath ? 'bg-success/10' : 'bg-surface-muted hover:bg-surface-active'
-                    }`}
-                    title={copiedPath ? t('context.copied') : `${currentWorkingDir}\nClick to copy`}
-                    onClick={() => handleCopyPath(currentWorkingDir)}
-                  >
-                    {copiedPath ? (
-                      <Check className="w-4 h-4 text-success flex-shrink-0" />
-                    ) : (
-                      <FolderOpen className="w-4 h-4 text-accent flex-shrink-0" />
-                    )}
-                    <span className={`text-sm truncate ${copiedPath ? 'text-success' : 'text-text-primary'}`}>
-                      {copiedPath ? t('context.copied') : formatPath(currentWorkingDir)}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-xs text-text-muted px-2">{t('context.noFolderSelected')}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Tools Used - Only show non-MCP tools */}
-            <div>
-              <p className="text-xs text-text-muted mb-2">{t('context.toolsUsed')}</p>
-              <div className="space-y-1">
-                {getUniqueNonMCPTools(steps).map((tool, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-surface-muted"
-                  >
-                    {getToolIcon(tool)}
-                    <span className="text-sm text-text-primary">{tool}</span>
-                    <span className="text-xs text-text-muted ml-auto">
-                      {steps.filter(s => s.toolName === tool).length}x
-                    </span>
-                  </div>
-                ))}
-                {getUniqueNonMCPTools(steps).length === 0 && (
-                  <p className="text-xs text-text-muted px-2">{t('context.noToolsUsedYet')}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Connectors - Inside Context */}
-            <div>
-              <p className="text-xs text-text-muted mb-2">{t('context.mcpConnectors')}</p>
-              <div className="space-y-1">
-                {mcpServers.length === 0 ? (
-                  <p className="text-xs text-text-muted px-2">{t('mcp.noConnectors')}</p>
-                ) : (
-                  mcpServers.map((server) => (
-                    <ConnectorItem
-                      key={server.id}
-                      server={server}
-                      steps={steps}
-                      expanded={expandedConnector === server.id}
-                      onToggle={() => setExpandedConnector(expandedConnector === server.id ? null : server.id)}
-                    />
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+          <button
+            onClick={async () => {
+              setIsChangingDir(true);
+              try {
+                await changeWorkingDir(activeSessionId || undefined);
+              } finally {
+                setIsChangingDir(false);
+              }
+            }}
+            disabled={isChangingDir}
+            className="text-text-muted hover:text-text-primary disabled:opacity-50 transition-colors flex-shrink-0"
+            title={t('context.changeDir')}
+          >
+            {isChangingDir ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FolderSync className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
       </div>
+
+      {/* MCP Connectors */}
+      {mcpServers.length > 0 && (
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-4 py-3 space-y-1">
+            <p className="text-xs text-text-muted mb-2">{t('context.mcpConnectors')}</p>
+            {mcpServers.map((server) => (
+              <ConnectorItem
+                key={server.id}
+                server={server}
+                steps={steps}
+                expanded={expandedConnector === server.id}
+                onToggle={() =>
+                  setExpandedConnector(expandedConnector === server.id ? null : server.id)
+                }
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -453,149 +435,6 @@ function ConnectorItem({
   );
 }
 
-// Group consecutive steps with the same tool name
-interface StepGroup {
-  id: string;
-  toolName: string | undefined;
-  displayName: string;
-  steps: TraceStep[];
-  status: TraceStepStatus;
-  hasError: boolean;
-}
-
-function getGroupedSteps(steps: TraceStep[]): StepGroup[] {
-  const groups: StepGroup[] = [];
-  
-  for (const step of steps) {
-    const formatToolName = (toolName?: string) => {
-      if (!toolName) return undefined;
-      const match = toolName.match(/^mcp__(.+?)__(.+)$/);
-      if (match) {
-        return `${match[1]}: ${match[2]}`;
-      }
-      return toolName;
-    };
-    
-    const displayName = formatToolName(step.toolName) || step.title;
-    const lastGroup = groups[groups.length - 1];
-    
-    // Check if we can merge with the last group
-    if (lastGroup && 
-        lastGroup.toolName === step.toolName && 
-        lastGroup.displayName === displayName &&
-        step.type === 'tool_call') {
-      // Merge into existing group
-      lastGroup.steps.push(step);
-      // Update status to the latest step's status
-      lastGroup.status = step.status;
-      if (step.status === 'error') {
-        lastGroup.hasError = true;
-      }
-    } else {
-      // Create new group
-      groups.push({
-        id: step.id,
-        toolName: step.toolName,
-        displayName,
-        steps: [step],
-        status: step.status,
-        hasError: step.status === 'error',
-      });
-    }
-  }
-  
-  return groups;
-}
-
-function TraceStepGroupItem({ group }: { group: StepGroup }) {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const count = group.steps.length;
-
-  const getIcon = () => {
-    if (group.status === 'running') {
-      return <Loader2 className="w-4 h-4 text-accent animate-spin" />;
-    }
-    if (group.hasError) {
-      return <AlertCircle className="w-4 h-4 text-error" />;
-    }
-    if (group.status === 'completed') {
-      return <Check className="w-4 h-4 text-success" />;
-    }
-    return <div className="w-4 h-4 rounded-full border-2 border-border" />;
-  };
-
-  const getBgColor = () => {
-    if (group.status === 'running') return 'bg-accent/10 border-accent/30';
-    if (group.hasError) return 'bg-error/10 border-error/30';
-    if (group.status === 'completed') return 'bg-success/10 border-success/30';
-    return 'bg-surface-muted border-border';
-  };
-
-  const hasDetails = group.steps.some(s => s.toolInput || s.toolOutput);
-
-  return (
-    <div className={`rounded-lg border ${getBgColor()} overflow-hidden`}>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full px-3 py-2 flex items-center gap-2 text-left"
-      >
-        {getIcon()}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-text-primary truncate">
-            {group.displayName}
-            {count > 1 && (
-              <span className="ml-2 text-xs text-text-muted">×{count}</span>
-            )}
-          </p>
-        </div>
-        {hasDetails && (
-          <ChevronDown className={`w-4 h-4 text-text-muted transition-transform ${expanded ? 'rotate-180' : ''}`} />
-        )}
-      </button>
-
-      {expanded && hasDetails && (
-        <div className="px-3 pb-3 space-y-3">
-          {group.steps.map((step, index) => (
-            <div key={step.id} className="space-y-2">
-              {count > 1 && (
-                <p className="text-xs font-medium text-text-muted">{t('context.callNumber', { number: index + 1 })}</p>
-              )}
-          {step.toolInput && (
-            <div>
-                  <p className="text-xs font-medium text-text-muted mb-1">{t('context.input')}</p>
-              <pre className="text-xs bg-surface p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
-                {JSON.stringify(step.toolInput, null, 2)}
-              </pre>
-            </div>
-          )}
-          {step.toolOutput && (
-            <div>
-                  <p className="text-xs font-medium text-text-muted mb-1">{t('context.output')}</p>
-              <pre className="text-xs bg-surface p-2 rounded overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
-                {step.toolOutput}
-              </pre>
-            </div>
-          )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function getUniqueNonMCPTools(steps: TraceStep[]): string[] {
-  const tools = new Set<string>();
-  steps.forEach(step => {
-    // Only include non-MCP tools (MCP tools start with mcp__)
-    if (step.toolName && !step.toolName.startsWith('mcp__')) {
-      tools.add(step.toolName);
-    }
-  });
-  return Array.from(tools);
-}
-
 function parseArtifactOutput(toolOutput?: string): { path?: string; name?: string; type?: string } | null {
   if (!toolOutput) {
     return null;
@@ -633,30 +472,17 @@ function formatPath(path: string): string {
   return path;
 }
 
-function getToolIcon(toolName: string) {
-  switch (toolName) {
-    case 'read_file':
-      return <Eye className="w-4 h-4 text-accent" />;
-    case 'write_file':
-      return <Edit className="w-4 h-4 text-success" />;
-    case 'edit_file':
-      return <Edit className="w-4 h-4 text-accent" />;
-    case 'list_directory':
-      return <FolderOpen className="w-4 h-4 text-warning" />;
-    case 'execute_command':
-      return <Terminal className="w-4 h-4 text-mcp" />;
-    case 'glob':
-      return <Search className="w-4 h-4 text-accent" />;
-    case 'grep':
-      return <Search className="w-4 h-4 text-accent" />;
-    case 'search_files':
-      return <Search className="w-4 h-4 text-accent" />;
-    case 'WebFetch':
-    case 'webFetch':
-    case 'WebSearch':
-    case 'webSearch':
-      return <Globe className="w-4 h-4 text-accent" />;
-    default:
-      return <File className="w-4 h-4 text-text-muted" />;
-  }
+function formatDuration(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h ${m % 60}m`;
+  if (m > 0) return `${m}m ${s % 60}s`;
+  return `${s}s`;
+}
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }

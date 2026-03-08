@@ -369,7 +369,13 @@
     "fileCreated": "File created",
     "callNumber": "Call #{{number}}",
     "input": "Input:",
-    "output": "Output:"
+    "output": "Output:",
+    "tokenUsage": "Token Usage",
+    "inputTokens": "Input",
+    "outputTokens": "Output",
+    "totalTokens": "Total",
+    "changeDir": "Change directory",
+    "copyPath": "Copy path"
   },
   "messageCard": {
     "request": "Request"

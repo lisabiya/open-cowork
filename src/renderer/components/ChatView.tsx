@@ -23,15 +23,13 @@ type AttachedFile = {
 
 export function ChatView() {
   const { t } = useTranslation();
-  const {
-    activeSessionId,
-    sessions,
-    messagesBySession,
-    partialMessagesBySession,
-    activeTurnsBySession,
-    pendingTurnsBySession,
-    appConfig,
-  } = useAppStore();
+  const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const sessions = useAppStore((s) => s.sessions);
+  const messagesBySession = useAppStore((s) => s.messagesBySession);
+  const partialMessagesBySession = useAppStore((s) => s.partialMessagesBySession);
+  const activeTurnsBySession = useAppStore((s) => s.activeTurnsBySession);
+  const pendingTurnsBySession = useAppStore((s) => s.pendingTurnsBySession);
+  const appConfig = useAppStore((s) => s.appConfig);
   const { continueSession, stopSession, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);

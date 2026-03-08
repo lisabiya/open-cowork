@@ -169,8 +169,10 @@ function normalizeCitationMarkdownLinks(markdown: string): string {
   return markdown.replace(/~\[(.+?)\]\(([^)\s]+)\)~/g, '[$1]($2)');
 }
 
-function ContentBlockView({ block, isUser, isStreaming, allBlocks, message }: ContentBlockViewProps) {
-  const { activeSessionId, sessions, workingDir } = useAppStore();
+const ContentBlockView = memo(function ContentBlockView({ block, isUser, isStreaming, allBlocks, message }: ContentBlockViewProps) {
+  const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const sessions = useAppStore((s) => s.sessions);
+  const workingDir = useAppStore((s) => s.workingDir);
   const activeSession = activeSessionId ? sessions.find(s => s.id === activeSessionId) : null;
   const currentWorkingDir = activeSession?.cwd || workingDir;
 
@@ -433,9 +435,7 @@ function ContentBlockView({ block, isUser, isStreaming, allBlocks, message }: Co
     default:
       return null;
   }
-}
-
-/** Get an icon for a tool by name */
+});
 function getToolIcon(name: string) {
   const n = name.toLowerCase();
   if (n === 'bash' || n === 'execute_command') return <Terminal className="w-3.5 h-3.5" />;
@@ -449,8 +449,10 @@ function getToolIcon(name: string) {
   return <Terminal className="w-3.5 h-3.5" />;
 }
 
-function ToolUseBlock({ block, allBlocks, message }: { block: ToolUseContent; allBlocks?: ContentBlock[]; message?: Message }) {
-  const { traceStepsBySession, messagesBySession, activeTurnsBySession } = useAppStore();
+const ToolUseBlock = memo(function ToolUseBlock({ block, allBlocks, message }: { block: ToolUseContent; allBlocks?: ContentBlock[]; message?: Message }) {
+  const traceStepsBySession = useAppStore((s) => s.traceStepsBySession);
+  const messagesBySession = useAppStore((s) => s.messagesBySession);
+  const activeTurnsBySession = useAppStore((s) => s.activeTurnsBySession);
   const [expanded, setExpanded] = useState(false);
 
   // Check if this is AskUserQuestion - render inline question UI
@@ -626,7 +628,7 @@ function ToolUseBlock({ block, allBlocks, message }: { block: ToolUseContent; al
       )}
     </div>
   );
-}
+});
 
 /** Shorten a file path to just filename or last 2 segments */
 function shortenPath(p: string): string {
@@ -684,7 +686,7 @@ interface TodoItem {
 }
 
 // TodoWrite block - renders a beautiful todo list
-function TodoWriteBlock({ block }: { block: ToolUseContent }) {
+const TodoWriteBlock = memo(function TodoWriteBlock({ block }: { block: ToolUseContent }) {
   const [expanded, setExpanded] = useState(true);
   const todos: TodoItem[] = (block.input as any)?.todos || [];
 
@@ -782,7 +784,7 @@ function TodoWriteBlock({ block }: { block: ToolUseContent }) {
       )}
     </div>
   );
-}
+});
 
 // Inline AskUserQuestion component - read-only display for historical messages
 function AskUserQuestionBlock({ block }: { block: ToolUseContent }) {
@@ -853,8 +855,9 @@ function AskUserQuestionBlock({ block }: { block: ToolUseContent }) {
 }
 
 // Fallback ToolResultBlock — only renders for truly orphan results (no matching tool_use anywhere)
-function ToolResultBlock({ block, allBlocks, message }: { block: ToolResultContent; allBlocks?: ContentBlock[]; message?: Message }) {
-  const { traceStepsBySession, messagesBySession } = useAppStore();
+const ToolResultBlock = memo(function ToolResultBlock({ block, allBlocks, message }: { block: ToolResultContent; allBlocks?: ContentBlock[]; message?: Message }) {
+  const traceStepsBySession = useAppStore((s) => s.traceStepsBySession);
+  const messagesBySession = useAppStore((s) => s.messagesBySession);
   const [expanded, setExpanded] = useState(false);
 
   // If a ToolUseBlock in any message already merges this result, hide this block
@@ -953,9 +956,9 @@ function ToolResultBlock({ block, allBlocks, message }: { block: ToolResultConte
       )}
     </div>
   );
-}
+});
 // Thinking block — collapsible card (Claude style)
-function ThinkingBlock({ block }: { block: { type: 'thinking'; thinking: string } }) {
+const ThinkingBlock = memo(function ThinkingBlock({ block }: { block: { type: 'thinking'; thinking: string } }) {
   const [expanded, setExpanded] = useState(false);
   const text = block.thinking || '';
   if (!text) return null;
@@ -992,9 +995,9 @@ function ThinkingBlock({ block }: { block: { type: 'thinking'; thinking: string 
       )}
     </div>
   );
-}
+});
 
-function CodeBlock({ language, children }: { language: string; children: string }) {
+const CodeBlock = memo(function CodeBlock({ language, children }: { language: string; children: string }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -1025,4 +1028,4 @@ function CodeBlock({ language, children }: { language: string; children: string 
       </pre>
     </div>
   );
-}
+});

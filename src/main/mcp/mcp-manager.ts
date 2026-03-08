@@ -46,6 +46,10 @@ export class MCPManager {
   private tools: Map<string, MCPTool> = new Map(); // toolName -> MCPTool
   private serverConfigs: Map<string, MCPServerConfig> = new Map();
   private npxPath: string | null = null; // Cached npx path
+  // Fingerprint of last initialized config to skip redundant re-init
+  private lastConfigFingerprint: string | null = null;
+  // Cached base environment (shell env + PATH). Resolved once, reused for all MCP server spawns.
+  private cachedBaseEnv: Record<string, string> | null = null;
 
   /**
    * Get bundled Node.js path
@@ -126,18 +130,29 @@ export class MCPManager {
    * This is critical for packaged apps where process.env is very limited
    */
   private async getEnhancedEnv(configEnv: Record<string, string>): Promise<Record<string, string>> {
+    if (!this.cachedBaseEnv) {
+      this.cachedBaseEnv = await this.resolveBaseEnv();
+    }
+    return { ...this.cachedBaseEnv, ...configEnv };
+  }
+
+  /**
+   * Resolve the base environment (shell env + PATH).
+   * Heavy operation — called once, then cached by getEnhancedEnv.
+   */
+  private async resolveBaseEnv(): Promise<Record<string, string>> {
     const { exec } = await import('child_process');
     const { promisify } = await import('util');
     const execAsync = promisify(exec);
     const os = await import('os');
     const path = await import('path');
-    
+
     const platform = os.platform();
     const homeDir = os.homedir();
-    
+
     // Start with current process env
     let env = { ...process.env } as Record<string, string>;
-    
+
     // For macOS/Linux, try to get full environment from user's shell
     // This is essential for packaged apps where process.env is minimal
     if (platform === 'darwin' || platform === 'linux') {
@@ -244,18 +259,22 @@ export class MCPManager {
     
     log(`[MCPManager] Final PATH: ${env.PATH?.substring(0, 150)}...`);
 
-    // Merge with config env (config env takes precedence)
-    const merged = { ...env, ...configEnv };
-
-    return merged;
+    return env;
   }
 
   /**
    * Initialize MCP servers from configuration
    */
   async initializeServers(configs: MCPServerConfig[]): Promise<void> {
+    const fingerprint = JSON.stringify(configs.map(c => ({ id: c.id, enabled: c.enabled, command: c.command, args: c.args, url: c.url, env: c.env })));
+    if (fingerprint === this.lastConfigFingerprint) {
+      log('[MCPManager] Config unchanged, skipping re-initialization');
+      return;
+    }
+    this.lastConfigFingerprint = fingerprint;
+
     log('[MCPManager] Initializing', configs.length, 'MCP servers');
-    
+
     // Close existing connections
     await this.disconnectAll();
 
@@ -265,16 +284,17 @@ export class MCPManager {
       this.serverConfigs.set(config.id, config);
     }
 
-    // Connect to enabled servers
-    for (const config of configs) {
-      if (config.enabled) {
+    // Connect to enabled servers in parallel
+    const enabledConfigs = configs.filter(c => c.enabled);
+    await Promise.allSettled(
+      enabledConfigs.map(async (config) => {
         try {
           await this.connectServer(config);
         } catch (error) {
           logError(`[MCPManager] Failed to connect to server ${config.name}:`, error);
         }
-      }
-    }
+      })
+    );
 
     // Refresh tools from all connected servers
     await this.refreshTools();
@@ -286,6 +306,7 @@ export class MCPManager {
    */
   async updateServer(config: MCPServerConfig): Promise<void> {
     log(`[MCPManager] Updating server: ${config.name} (enabled: ${config.enabled})`);
+    this.lastConfigFingerprint = null;
     
     // Store the updated config
     this.serverConfigs.set(config.id, config);
@@ -325,6 +346,7 @@ export class MCPManager {
    */
   async removeServer(serverId: string): Promise<void> {
     log(`[MCPManager] Removing server: ${serverId}`);
+    this.lastConfigFingerprint = null;
     await this.disconnectServer(serverId);
     this.serverConfigs.delete(serverId);
     await this.refreshTools();

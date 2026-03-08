@@ -541,6 +541,10 @@ app.whenReady().then(async () => {
   // Initialize database
   const db = initDatabase();
 
+  // Show window early — heavy backend init proceeds in parallel below
+  createWindow();
+  startNavServer(() => mainWindow);
+
   // Initialize skills manager
   skillsManager = new SkillsManager(db, {
     getConfiguredGlobalSkillsPath: () => configStore.get('globalSkillsPath') || '',
@@ -612,11 +616,6 @@ app.whenReady().then(async () => {
       logError('[App] Failed to start remote control:', error);
     });
   }
-
-  createWindow();
-
-  // Start lightweight HTTP server for CLI-driven UI navigation
-  startNavServer(() => mainWindow);
 
   app.on('activate', () => {
     const hasVisibleWindow = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed());

@@ -15,7 +15,7 @@ interface TracePanelProps {
 }
 
 export function TracePanel({ sessionId }: TracePanelProps) {
-  const { traceStepsBySession } = useAppStore();
+  const traceStepsBySession = useAppStore((s) => s.traceStepsBySession);
   const steps = traceStepsBySession[sessionId] || [];
 
   return (

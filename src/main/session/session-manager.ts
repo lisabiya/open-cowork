@@ -96,28 +96,31 @@ export class SessionManager {
   }
 
   /**
-   * Reload config and recreate agent runner
-   * This is safer than recreating the entire SessionManager
+   * Reload API config only — recreate agent runner without touching MCP or sandbox.
    */
   reloadConfig(): void {
-    log('[SessionManager] Reloading config and recreating agent runner');
-
-    // Stop all active sessions before recreating runner
+    log('[SessionManager] Reloading API config and recreating agent runner');
     for (const sessionId of this.activeSessions.keys()) {
       log('[SessionManager] Stopping active session before config reload:', sessionId);
       this.stopSession(sessionId);
     }
-
-    // Recreate agent runner with new config
     this.createAgentRunner();
+    log('[SessionManager] API config reloaded successfully');
+  }
 
-    // Reinitialize MCP servers so subprocess env picks up latest credentials/base URLs
-    this.initializeMCP().catch(err => logError('[SessionManager] MCP reinit failed after config reload:', err));
+  /**
+   * Reinitialize MCP servers (call only when MCP config actually changes)
+   */
+  async reloadMCP(): Promise<void> {
+    log('[SessionManager] Reloading MCP servers');
+    await this.initializeMCP();
+  }
 
-    // Reinitialize sandbox adapter to pick up sandboxEnabled changes
-    this.reinitializeSandboxAsync();
-
-    log('[SessionManager] Config reloaded successfully');
+  /**
+   * Reinitialize sandbox adapter (call only when sandbox config changes)
+   */
+  async reloadSandbox(): Promise<void> {
+    await this.reinitializeSandboxAsync();
   }
 
   /**

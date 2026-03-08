@@ -16,23 +16,21 @@ import {
 
 export function Sidebar() {
   const { t } = useTranslation();
-  const {
-    sessions,
-    activeSessionId,
-    settings,
-    messagesBySession,
-    traceStepsBySession,
-    activeTurnsBySession,
-    pendingTurnsBySession,
-    setActiveSession,
-    setMessages,
-    setTraceSteps,
-    updateSettings,
-    isConfigured,
-    sidebarCollapsed,
-    toggleSidebar,
-    setShowSettings,
-  } = useAppStore();
+  const sessions = useAppStore((s) => s.sessions);
+  const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const settings = useAppStore((s) => s.settings);
+  const messagesBySession = useAppStore((s) => s.messagesBySession);
+  const traceStepsBySession = useAppStore((s) => s.traceStepsBySession);
+  const activeTurnsBySession = useAppStore((s) => s.activeTurnsBySession);
+  const pendingTurnsBySession = useAppStore((s) => s.pendingTurnsBySession);
+  const setActiveSession = useAppStore((s) => s.setActiveSession);
+  const setMessages = useAppStore((s) => s.setMessages);
+  const setTraceSteps = useAppStore((s) => s.setTraceSteps);
+  const updateSettings = useAppStore((s) => s.updateSettings);
+  const isConfigured = useAppStore((s) => s.isConfigured);
+  const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar);
+  const setShowSettings = useAppStore((s) => s.setShowSettings);
   const { deleteSession, getSessionMessages, getSessionTraceSteps, isElectron } = useIPC();
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [loadingSession, setLoadingSession] = useState<string | null>(null);

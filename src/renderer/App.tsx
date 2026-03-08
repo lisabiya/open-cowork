@@ -20,28 +20,26 @@ import type { GlobalNoticeAction } from './store';
 const isElectronEnv = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
 function App() {
-  const {
-    activeSessionId,
-    pendingPermission,
-    settings,
-    showConfigModal,
-    showSettings,
-    sidebarCollapsed,
-    isConfigured,
-    appConfig,
-    globalNotice,
-    sandboxSetupProgress,
-    isSandboxSetupComplete,
-    sandboxSyncStatus,
-    setShowConfigModal,
-    setIsConfigured,
-    setAppConfig,
-    clearGlobalNotice,
-    setSandboxSetupComplete,
-    setShowSettings,
-    setSidebarCollapsed,
-    setContextPanelCollapsed,
-  } = useAppStore();
+  const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const pendingPermission = useAppStore((s) => s.pendingPermission);
+  const settings = useAppStore((s) => s.settings);
+  const showConfigModal = useAppStore((s) => s.showConfigModal);
+  const showSettings = useAppStore((s) => s.showSettings);
+  const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
+  const isConfigured = useAppStore((s) => s.isConfigured);
+  const appConfig = useAppStore((s) => s.appConfig);
+  const globalNotice = useAppStore((s) => s.globalNotice);
+  const sandboxSetupProgress = useAppStore((s) => s.sandboxSetupProgress);
+  const isSandboxSetupComplete = useAppStore((s) => s.isSandboxSetupComplete);
+  const sandboxSyncStatus = useAppStore((s) => s.sandboxSyncStatus);
+  const setShowConfigModal = useAppStore((s) => s.setShowConfigModal);
+  const setIsConfigured = useAppStore((s) => s.setIsConfigured);
+  const setAppConfig = useAppStore((s) => s.setAppConfig);
+  const clearGlobalNotice = useAppStore((s) => s.clearGlobalNotice);
+  const setSandboxSetupComplete = useAppStore((s) => s.setSandboxSetupComplete);
+  const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const setSidebarCollapsed = useAppStore((s) => s.setSidebarCollapsed);
+  const setContextPanelCollapsed = useAppStore((s) => s.setContextPanelCollapsed);
   const { listSessions, isElectron } = useIPC();
   const { width } = useWindowSize();
   const initialized = useRef(false);

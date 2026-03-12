@@ -41,8 +41,16 @@ function makeStep(name: DiagnosticStepName): DiagnosticStep {
   return { name, status: 'pending' };
 }
 
+function normalizeNetworkHostname(hostname: string): string {
+  if (hostname.startsWith('[') && hostname.endsWith(']')) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
+}
+
 function isLoopback(hostname: string): boolean {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  const normalized = normalizeNetworkHostname(hostname);
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
 }
 
 function resolveEffectiveUrl(input: DiagnosticInput): URL {
@@ -137,10 +145,7 @@ function resolveClientBaseUrl(input: DiagnosticInput): string | undefined {
 // Individual diagnostic steps
 // ---------------------------------------------------------------------------
 
-async function stepDns(
-  hostname: string,
-  step: DiagnosticStep
-): Promise<void> {
+async function stepDns(hostname: string, step: DiagnosticStep): Promise<void> {
   if (isLoopback(hostname)) {
     step.status = 'ok';
     step.latencyMs = 0;
@@ -159,11 +164,7 @@ async function stepDns(
   step.latencyMs = Date.now() - start;
 }
 
-async function stepTcp(
-  hostname: string,
-  port: number,
-  step: DiagnosticStep
-): Promise<void> {
+async function stepTcp(hostname: string, port: number, step: DiagnosticStep): Promise<void> {
   const start = Date.now();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -205,17 +206,43 @@ async function stepTls(
   const start = Date.now();
   try {
     await new Promise<void>((resolve, reject) => {
-      const socket = tls.connect({ host: hostname, port, timeout: TLS_TIMEOUT_MS }, () => {
+      const servername = net.isIP(hostname) === 0 ? hostname : undefined;
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
         socket.destroy();
+        if (error) {
+          reject(error);
+          return;
+        }
         resolve();
+      };
+      const socket = tls.connect(
+        {
+          host: hostname,
+          port,
+          timeout: TLS_TIMEOUT_MS,
+          ...(servername ? { servername } : {}),
+        },
+        () => {
+          if (!socket.authorized && socket.authorizationError) {
+            finish(new Error(socket.authorizationError));
+            return;
+          }
+          finish();
+        }
+      );
+      socket.once('secureConnect', () => {
+        if (!socket.authorized && socket.authorizationError) {
+          finish(new Error(socket.authorizationError));
+        }
       });
       socket.once('timeout', () => {
-        socket.destroy();
-        reject(new Error('TLS handshake timed out'));
+        finish(new Error('TLS handshake timed out'));
       });
       socket.once('error', (err) => {
-        socket.destroy();
-        reject(err);
+        finish(err);
       });
     });
     step.status = 'ok';
@@ -437,7 +464,7 @@ export async function runDiagnostics(input: DiagnosticInput): Promise<Diagnostic
 
   // Parse URL for network checks
   const url = resolveEffectiveUrl(input);
-  const hostname = url.hostname;
+  const hostname = normalizeNetworkHostname(url.hostname);
   const isHttps = url.protocol === 'https:';
   const port = url.port ? Number(url.port) : defaultPort(url.protocol, input.provider);
 

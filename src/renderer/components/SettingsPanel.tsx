@@ -382,31 +382,9 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
             <X className="w-5 h-5 text-text-secondary" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 lg:px-8 lg:py-7">
-          <div className="max-w-[900px] w-full min-w-0 mx-auto space-y-5">
-            {activeTabMeta && (
-              <div className="rounded-[1.75rem] border border-border-subtle bg-background/70 shadow-soft px-5 py-4 lg:px-6">
-                <div className="flex items-start gap-4">
-                  <div className="w-11 h-11 rounded-2xl border border-border-subtle bg-background/80 flex items-center justify-center text-accent flex-shrink-0">
-                    <activeTabMeta.icon className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
-                      {t('settings.title')}
-                    </p>
-                    <h4 className="mt-1 text-[1.15rem] font-semibold tracking-[-0.02em] text-text-primary">
-                      {activeTabMeta.label}
-                    </h4>
-                    {activeTabMeta.description && (
-                      <p className="mt-1.5 text-sm leading-6 text-text-muted max-w-[42rem]">
-                        {activeTabMeta.description}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="rounded-[2rem] border border-border-subtle bg-background/55 shadow-soft px-5 py-5 lg:px-8 lg:py-7">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 lg:px-8 lg:py-8">
+          <div className="max-w-[860px] w-full min-w-0 mx-auto">
+            <div className="">
               <div className={activeTab === 'api' ? '' : 'hidden'}>
                 {viewedTabs.has('api') && (
                   <>
@@ -460,7 +438,7 @@ function SettingsContentSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[1.6rem] border border-border-subtle bg-background/42 px-4 py-4 space-y-3">
+    <section className="space-y-3 py-5 border-b border-border-muted">
       <div className="space-y-1">
         <h4 className="text-sm font-semibold text-text-primary">{title}</h4>
         {description && <p className="text-xs leading-5 text-text-muted">{description}</p>}
@@ -565,7 +543,7 @@ function APISettingsTab() {
       />
 
       {/* Provider Selection */}
-      <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
           <Server className="w-4 h-4" />
           {t('api.provider')}
@@ -578,10 +556,10 @@ function APISettingsTab() {
                 key={p}
                 onClick={() => changeProvider(p)}
                 disabled={isLoadingConfig}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors active:scale-95 ${
+                className={`px-3 py-2 text-sm transition-colors border-l-2 ${
                   provider === p
-                    ? 'bg-accent text-white'
-                    : 'bg-surface-hover text-text-secondary hover:bg-surface-active disabled:opacity-50'
+                    ? 'border-accent text-text-primary font-medium'
+                    : 'border-transparent text-text-secondary hover:text-text-primary disabled:opacity-50'
                 }`}
               >
                 {p === 'custom' ? t('api.moreModels') : presets?.[p]?.name || p}
@@ -592,7 +570,7 @@ function APISettingsTab() {
       </div>
 
       {/* API Key */}
-      <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
           <Key className="w-4 h-4" />
           {t('api.apiKey')}
@@ -612,7 +590,7 @@ function APISettingsTab() {
 
       {/* Custom Protocol */}
       {provider === 'custom' && (
-        <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+        <div className="space-y-3 py-5 border-b border-border-muted">
           <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
             <Server className="w-4 h-4" />
             {t('api.protocol')}
@@ -628,10 +606,10 @@ function APISettingsTab() {
               <button
                 key={mode.id}
                 onClick={() => changeProtocol(mode.id)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors active:scale-95 ${
+                className={`px-3 py-2 text-sm transition-colors border-l-2 ${
                   customProtocol === mode.id
-                    ? 'bg-accent text-white'
-                    : 'bg-surface-hover text-text-secondary hover:bg-surface-active'
+                    ? 'border-accent text-text-primary font-medium'
+                    : 'border-transparent text-text-secondary hover:text-text-primary'
                 }`}
               >
                 {mode.label}
@@ -644,7 +622,7 @@ function APISettingsTab() {
       )}
 
       {(provider === 'custom' || provider === 'ollama') && (
-        <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+        <div className="space-y-3 py-5 border-b border-border-muted">
           <div className="flex items-center justify-between gap-2">
             <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
               <Server className="w-4 h-4" />
@@ -698,7 +676,7 @@ function APISettingsTab() {
       )}
 
       {/* Model Selection */}
-      <div className="space-y-3 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <div className="flex items-center justify-between">
           <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
             <Cpu className="w-4 h-4" />
@@ -770,7 +748,7 @@ function APISettingsTab() {
       )}
 
       {/* Enable Thinking Mode */}
-      <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <div className="flex items-start gap-2 text-xs text-text-muted">
           <input
             type="checkbox"
@@ -813,7 +791,7 @@ function APISettingsTab() {
       />
 
       {/* Save Button */}
-      <div className="space-y-3 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <div className="grid grid-cols-1 gap-2">
           <button
             onClick={() => {

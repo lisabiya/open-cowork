@@ -19,6 +19,21 @@ const MAX_LOG_ARRAY_ITEMS = 20;
 
 // Developer logs enabled flag (can be toggled by user)
 let devLogsEnabled = true;
+const ALWAYS_PERSIST_LOG_LEVELS = new Set(['WARN', 'ERROR']);
+
+function clearLogStreamState(): void {
+  logStream = null;
+  logFilePath = null;
+}
+
+function attachLogStreamErrorHandler(stream: fs.WriteStream, filePath: string): void {
+  stream.on('error', (error) => {
+    safeConsoleError('[Logger] Log stream error:', filePath, error);
+    if (logStream === stream) {
+      clearLogStreamState();
+    }
+  });
+}
 
 function resolveUserDataPath(): string {
   try {
@@ -72,6 +87,7 @@ function initLogFile(): void {
 
     // Create write stream
     logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+    attachLogStreamErrorHandler(logStream, logFilePath);
 
     // Write header
     const header = `
@@ -166,16 +182,14 @@ function rotateLogIfNeeded(): void {
       logStream.end();
 
       // Reset and reinitialize
-      logFilePath = null;
-      logStream = null;
+      clearLogStreamState();
       initLogFile();
     }
   } catch (error) {
     const errno = error as NodeJS.ErrnoException;
     if (errno.code === 'ENOENT') {
       // Current log file was removed unexpectedly; recreate a fresh file.
-      logFilePath = null;
-      logStream = null;
+      clearLogStreamState();
       initLogFile();
       return;
     }
@@ -300,8 +314,7 @@ function serializeLogArg(arg: unknown): string {
  * Write to log file
  */
 function writeToFile(level: string, ...args: unknown[]): void {
-  // Skip if dev logs are disabled
-  if (!devLogsEnabled) {
+  if (!shouldPersistLogLevel(level, devLogsEnabled)) {
     return;
   }
 
@@ -325,6 +338,10 @@ function writeToFile(level: string, ...args: unknown[]): void {
       safeConsoleError('[Logger] Failed to write to log file:', error);
     }
   }
+}
+
+export function shouldPersistLogLevel(level: string, detailedLogsEnabled: boolean): boolean {
+  return detailedLogsEnabled || ALWAYS_PERSIST_LOG_LEVELS.has(level);
 }
 
 function getTimestamp(): string {
@@ -351,9 +368,6 @@ export function logError(...args: unknown[]): void {
  * Get current log file path
  */
 export function getLogFilePath(): string | null {
-  if (!logFilePath) {
-    initLogFile();
-  }
   return logFilePath;
 }
 
@@ -406,8 +420,7 @@ export function setDevLogsEnabled(enabled: boolean): void {
   if (!enabled && logStream) {
     try {
       logStream.end();
-      logStream = null;
-      logFilePath = null;
+      clearLogStreamState();
       safeConsoleLog('[Logger] Log file closed (dev logs disabled)');
     } catch (error) {
       safeConsoleError('[Logger] Failed to close log file:', error);
@@ -429,13 +442,12 @@ export function closeLogFile(): void {
   if (logStream) {
     try {
       logStream.end();
-      logStream = null;
       safeConsoleLog('[Logger] Log file closed');
     } catch (error) {
       safeConsoleError('[Logger] Failed to close log file:', error);
     }
   }
-  logFilePath = null;
+  clearLogStreamState();
 }
 
 function isBrokenPipeError(error: unknown): boolean {

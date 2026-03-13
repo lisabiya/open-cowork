@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { homedir } from 'os';
 import type { Message, Session, TraceStep } from '../src/renderer/types';
-import { buildDiagnosticsSummary } from '../src/main/utils/diagnostics-summary';
+import {
+  buildDiagnosticsSummary,
+  redactFileSystemPath,
+} from '../src/main/utils/diagnostics-summary';
 
 describe('buildDiagnosticsSummary', () => {
   it('exports only metadata for messages and trace steps', () => {
@@ -113,6 +117,10 @@ describe('buildDiagnosticsSummary', () => {
     });
     expect(JSON.stringify(summary)).not.toContain('abc123');
     expect(JSON.stringify(summary)).not.toContain('super-secret');
+    expect(summary.runtime.currentWorkingDir).toBe('<tmp>/project');
+    expect(summary.runtime.logsDirectory).toBe('<tmp>/logs');
+    expect(summary.config.defaultWorkdir).toBe('<tmp>/project');
+    expect(summary.sessions.items[0].cwd).toBe('<tmp>/project');
     expect(summary.recentErrorSteps[0].toolOutputLength).toBeGreaterThan(0);
     expect(summary.recentErrorSteps[0]).not.toHaveProperty('toolOutputPreview');
   });
@@ -206,5 +214,12 @@ describe('buildDiagnosticsSummary', () => {
     });
 
     expect(summary.recentErrorSteps.map((step) => step.id)).toEqual(['newer', 'older']);
+  });
+
+  it('redacts absolute paths while preserving a small tail for debugging', () => {
+    expect(redactFileSystemPath('/tmp/project/logs')).toBe('<tmp>/project/logs');
+    expect(redactFileSystemPath(`${homedir()}/work/app`)).toBe('<home>/work/app');
+    expect(redactFileSystemPath('C:\\Users\\tester\\AppData\\Local')).toBe('<abs>/AppData/Local');
+    expect(redactFileSystemPath('./relative/path')).toBe('./relative/path');
   });
 });

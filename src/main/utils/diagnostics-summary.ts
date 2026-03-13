@@ -1,3 +1,5 @@
+import { homedir } from 'os';
+import path from 'path';
 import type { Message, Session, TraceStep } from '../../renderer/types';
 
 const MAX_DIAGNOSTIC_SESSIONS = 8;
@@ -115,6 +117,69 @@ export interface BuildDiagnosticsSummaryInput {
   deps: DiagnosticsSummaryDependencies;
 }
 
+function normalizePathSeparators(value: string): string {
+  return value.replace(/\\/g, '/');
+}
+
+function getPathTail(value: string, maxSegments = 2): string {
+  const normalized = normalizePathSeparators(value).replace(/\/+$/, '');
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return '';
+  }
+  return segments.slice(-maxSegments).join('/');
+}
+
+function getRelativeTail(value: string, basePath: string, maxSegments = 2): string {
+  const normalizedValue = normalizePathSeparators(value).replace(/\/+$/, '');
+  const normalizedBase = normalizePathSeparators(basePath).replace(/\/+$/, '');
+  if (!normalizedBase || !normalizedValue.startsWith(normalizedBase)) {
+    return getPathTail(normalizedValue, maxSegments);
+  }
+
+  const suffix = normalizedValue.slice(normalizedBase.length).replace(/^\/+/, '');
+  if (!suffix) {
+    return '';
+  }
+  return getPathTail(suffix, maxSegments);
+}
+
+export function redactFileSystemPath(value?: string | null): string | null {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  const normalized = normalizePathSeparators(trimmed);
+  const normalizedHome = normalizePathSeparators(homedir());
+
+  if (normalizedHome && normalized.startsWith(normalizedHome)) {
+    const tail = getRelativeTail(normalized, normalizedHome);
+    return tail ? `<home>/${tail}` : '<home>';
+  }
+
+  if (
+    normalized.startsWith('/tmp') ||
+    normalized.startsWith('/private/tmp') ||
+    normalized.startsWith('/var/folders/')
+  ) {
+    const tmpBase = normalized.startsWith('/private/tmp')
+      ? '/private/tmp'
+      : normalized.startsWith('/var/folders/')
+        ? '/var/folders'
+        : '/tmp';
+    const tail = getRelativeTail(normalized, tmpBase);
+    return tail ? `<tmp>/${tail}` : '<tmp>';
+  }
+
+  if (/^[A-Za-z]:\//.test(normalized) || normalized.startsWith('//') || path.isAbsolute(trimmed)) {
+    const tail = getPathTail(normalized);
+    return tail ? `<abs>/${tail}` : '<abs>';
+  }
+
+  return trimmed;
+}
+
 function toIsoTimestamp(value?: number | Date | null): string | null {
   if (value === undefined || value === null) {
     return null;
@@ -174,7 +239,7 @@ function buildSessionDiagnosticSummary(
   return {
     id: session.id,
     status: session.status,
-    cwd: session.cwd || null,
+    cwd: redactFileSystemPath(session.cwd),
     model: session.model || null,
     createdAt: toIsoTimestamp(session.createdAt),
     updatedAt: toIsoTimestamp(session.updatedAt),
@@ -214,8 +279,16 @@ export function buildDiagnosticsSummary(input: BuildDiagnosticsSummaryInput): Di
   return {
     exportedAt: (input.exportedAt || new Date()).toISOString(),
     app: input.app,
-    runtime: input.runtime,
-    config: input.config,
+    runtime: {
+      ...input.runtime,
+      currentWorkingDir: redactFileSystemPath(input.runtime.currentWorkingDir),
+      logsDirectory:
+        redactFileSystemPath(input.runtime.logsDirectory) || input.runtime.logsDirectory,
+    },
+    config: {
+      ...input.config,
+      defaultWorkdir: redactFileSystemPath(input.config.defaultWorkdir),
+    },
     sandbox: input.sandbox,
     sessions: {
       total: sessions.length,

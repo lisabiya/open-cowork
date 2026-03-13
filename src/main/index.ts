@@ -1817,18 +1817,37 @@ ipcMain.handle('logs.export', async () => {
     const archive = archiver.default('zip', { zlib: { level: 9 } });
 
     return new Promise((resolve) => {
+      let settled = false;
+      const settle = (value: {
+        success: boolean;
+        path?: string;
+        size?: number;
+        error?: string;
+      }) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(value);
+      };
+
       output.on('close', () => {
         log('[Logs] Exported logs to:', result.filePath);
-        resolve({
+        settle({
           success: true,
           path: result.filePath,
           size: archive.pointer(),
         });
       });
 
+      output.on('error', (err: Error) => {
+        logError('[Logs] Error writing exported archive:', err);
+        settle({ success: false, error: err.message });
+      });
+
       archive.on('error', (err: Error) => {
         logError('[Logs] Error creating archive:', err);
-        resolve({ success: false, error: err.message });
+        settle({ success: false, error: err.message });
       });
 
       archive.pipe(output);

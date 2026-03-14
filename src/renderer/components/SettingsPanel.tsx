@@ -322,10 +322,10 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               title={compactSidebar ? tab.label : undefined}
-              className={`w-full flex items-center ${compactSidebar ? 'justify-center p-2.5' : 'gap-3 px-3.5 py-3'} rounded-2xl text-left transition-colors active:scale-[0.98] ${
+              className={`w-full flex items-center ${compactSidebar ? 'justify-center p-2.5' : 'gap-3 px-3.5 py-3'} rounded-lg text-left transition-colors active:scale-[0.98] ${
                 activeTab === tab.id
-                  ? 'bg-background text-text-primary border border-border-subtle shadow-soft'
-                  : 'hover:bg-background/70 text-text-secondary hover:text-text-primary'
+                  ? 'bg-accent/10 text-text-primary font-medium border-l-2 border-accent'
+                  : 'hover:bg-surface-hover text-text-secondary hover:text-text-primary'
               }`}
             >
               <tab.icon className="w-4.5 h-4.5 flex-shrink-0" />
@@ -346,7 +346,7 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
         <div className={`${compactSidebar ? 'p-1.5' : 'p-4'} border-t border-border-muted`}>
           <button
             onClick={onClose}
-            className={`w-full py-2 ${compactSidebar ? 'px-2' : 'px-4'} rounded-xl bg-background/70 hover:bg-background transition-colors text-text-secondary text-sm`}
+            className={`w-full py-2 ${compactSidebar ? 'px-2' : 'px-4'} rounded-lg bg-background hover:bg-background transition-colors text-text-secondary text-sm`}
             title={compactSidebar ? t('common.close') : undefined}
           >
             {compactSidebar ? <X className="w-4 h-4 mx-auto" /> : t('common.close')}
@@ -377,36 +377,14 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl hover:bg-surface-hover transition-colors"
+            className="p-2 rounded-lg hover:bg-surface-hover transition-colors"
           >
             <X className="w-5 h-5 text-text-secondary" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 lg:px-8 lg:py-7">
-          <div className="max-w-[900px] w-full min-w-0 mx-auto space-y-5">
-            {activeTabMeta && (
-              <div className="rounded-[1.75rem] border border-border-subtle bg-background/70 shadow-soft px-5 py-4 lg:px-6">
-                <div className="flex items-start gap-4">
-                  <div className="w-11 h-11 rounded-2xl border border-border-subtle bg-background/80 flex items-center justify-center text-accent flex-shrink-0">
-                    <activeTabMeta.icon className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
-                      {t('settings.title')}
-                    </p>
-                    <h4 className="mt-1 text-[1.15rem] font-semibold tracking-[-0.02em] text-text-primary">
-                      {activeTabMeta.label}
-                    </h4>
-                    {activeTabMeta.description && (
-                      <p className="mt-1.5 text-sm leading-6 text-text-muted max-w-[42rem]">
-                        {activeTabMeta.description}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="rounded-[2rem] border border-border-subtle bg-background/55 shadow-soft px-5 py-5 lg:px-8 lg:py-7">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 lg:px-8 lg:py-8">
+          <div className="max-w-[860px] w-full min-w-0 mx-auto">
+            <div className="">
               <div className={activeTab === 'api' ? '' : 'hidden'}>
                 {viewedTabs.has('api') && (
                   <>
@@ -460,7 +438,7 @@ function SettingsContentSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[1.6rem] border border-border-subtle bg-background/42 px-4 py-4 space-y-3">
+    <section className="space-y-3 py-5 border-b border-border-muted">
       <div className="space-y-1">
         <h4 className="text-sm font-semibold text-text-primary">{title}</h4>
         {description && <p className="text-xs leading-5 text-text-muted">{description}</p>}
@@ -565,7 +543,7 @@ function APISettingsTab() {
       />
 
       {/* Provider Selection */}
-      <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
           <Server className="w-4 h-4" />
           {t('api.provider')}
@@ -578,10 +556,10 @@ function APISettingsTab() {
                 key={p}
                 onClick={() => changeProvider(p)}
                 disabled={isLoadingConfig}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors active:scale-95 ${
+                className={`px-3 py-2 rounded-lg text-sm transition-colors border ${
                   provider === p
-                    ? 'bg-accent text-white'
-                    : 'bg-surface-hover text-text-secondary hover:bg-surface-active disabled:opacity-50'
+                    ? 'border-accent bg-accent/10 text-accent font-medium'
+                    : 'border-border-muted text-text-secondary hover:border-border hover:text-text-primary disabled:opacity-50'
                 }`}
               >
                 {p === 'custom' ? t('api.moreModels') : presets?.[p]?.name || p}
@@ -592,7 +570,7 @@ function APISettingsTab() {
       </div>
 
       {/* API Key */}
-      <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
           <Key className="w-4 h-4" />
           {t('api.apiKey')}
@@ -603,7 +581,7 @@ function APISettingsTab() {
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           placeholder={currentPreset?.keyPlaceholder || t('api.enterApiKey')}
-          className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+          className="w-full px-4 py-3 rounded-lg bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
         />
         {currentPreset?.keyHint && (
           <p className="text-xs text-text-muted">{currentPreset.keyHint}</p>
@@ -612,7 +590,7 @@ function APISettingsTab() {
 
       {/* Custom Protocol */}
       {provider === 'custom' && (
-        <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+        <div className="space-y-3 py-5 border-b border-border-muted">
           <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
             <Server className="w-4 h-4" />
             {t('api.protocol')}
@@ -628,10 +606,10 @@ function APISettingsTab() {
               <button
                 key={mode.id}
                 onClick={() => changeProtocol(mode.id)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors active:scale-95 ${
+                className={`px-3 py-2 rounded-lg text-sm transition-colors border ${
                   customProtocol === mode.id
-                    ? 'bg-accent text-white'
-                    : 'bg-surface-hover text-text-secondary hover:bg-surface-active'
+                    ? 'border-accent bg-accent/10 text-accent font-medium'
+                    : 'border-border-muted text-text-secondary hover:border-border hover:text-text-primary'
                 }`}
               >
                 {mode.label}
@@ -644,7 +622,7 @@ function APISettingsTab() {
       )}
 
       {(provider === 'custom' || provider === 'ollama') && (
-        <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+        <div className="space-y-3 py-5 border-b border-border-muted">
           <div className="flex items-center justify-between gap-2">
             <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
               <Server className="w-4 h-4" />
@@ -679,7 +657,7 @@ function APISettingsTab() {
                     ? 'https://generativelanguage.googleapis.com'
                     : currentPreset?.baseUrl || 'https://api.anthropic.com'
             }
-            className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+            className="w-full px-4 py-3 rounded-lg bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
           />
           <p className="text-xs text-text-muted">
             {provider === 'ollama'
@@ -698,7 +676,7 @@ function APISettingsTab() {
       )}
 
       {/* Model Selection */}
-      <div className="space-y-3 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <div className="flex items-center justify-between">
           <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
             <Cpu className="w-4 h-4" />
@@ -724,7 +702,7 @@ function APISettingsTab() {
               className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors active:scale-95 ${
                 useCustomModel
                   ? 'bg-accent-muted text-accent'
-                  : 'bg-surface-hover text-text-secondary hover:bg-surface-active'
+                  : 'border border-border-muted bg-background text-text-secondary hover:bg-surface-hover'
               }`}
             >
               <Edit3 className="w-3 h-3" />
@@ -738,13 +716,13 @@ function APISettingsTab() {
             value={customModel}
             onChange={(e) => setCustomModel(e.target.value)}
             placeholder={modelInputPlaceholder}
-            className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+            className="w-full px-4 py-3 rounded-lg bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
           />
         ) : (
           <select
             value={modelOptions.length ? model : ''}
             onChange={(e) => setModel(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text-primary focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all appearance-none cursor-pointer"
+            className="w-full px-4 py-3 rounded-lg bg-background border border-border text-text-primary focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all appearance-none cursor-pointer"
           >
             {modelOptions.length ? (
               (modelOptions as ModelOptionItem[]).map((m) => (
@@ -770,7 +748,7 @@ function APISettingsTab() {
       )}
 
       {/* Enable Thinking Mode */}
-      <div className="space-y-2 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <div className="flex items-start gap-2 text-xs text-text-muted">
           <input
             type="checkbox"
@@ -793,13 +771,13 @@ function APISettingsTab() {
 
       {/* Error/Success Messages */}
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-error/10 text-error text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-error/10 text-error text-sm">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       )}
       {successMessage && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-success/10 text-success text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-success/10 text-success text-sm">
           <CheckCircle className="w-4 h-4 flex-shrink-0" />
           {successMessage}
         </div>
@@ -813,14 +791,14 @@ function APISettingsTab() {
       />
 
       {/* Save Button */}
-      <div className="space-y-3 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+      <div className="space-y-3 py-5 border-b border-border-muted">
         <div className="grid grid-cols-1 gap-2">
           <button
             onClick={() => {
               void handleSave();
             }}
             disabled={isSaving || (requiresApiKey && !apiKey.trim())}
-            className="w-full py-3 px-4 rounded-xl bg-accent text-white font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 rounded-lg bg-accent text-white font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
           >
             {isSaving ? (
               <>
@@ -1148,21 +1126,21 @@ function SandboxTab() {
     <div className="space-y-4">
       {/* Error/Success Messages */}
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-error/10 text-error text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-error/10 text-error text-sm">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           {renderLocalizedBannerMessage(error, t)}
         </div>
       )}
       {success && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-success/10 text-success text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-success/10 text-success text-sm">
           <CheckCircle className="w-4 h-4 flex-shrink-0" />
           {renderLocalizedBannerMessage(success, t)}
         </div>
       )}
 
       {/* Enable/Disable Toggle - Temporarily Disabled */}
-      <div className="p-6 rounded-xl bg-surface border border-border text-center space-y-4">
-        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto bg-surface-muted text-text-muted">
+      <div className="p-6 rounded-lg bg-surface border border-border text-center space-y-4">
+        <div className="w-16 h-16 rounded-lg flex items-center justify-center mx-auto bg-surface-muted text-text-muted">
           <Shield className="w-8 h-8" />
         </div>
         <div>
@@ -1188,7 +1166,7 @@ function SandboxTab() {
 
       {/* Status Details - Hidden while sandbox is disabled for debugging */}
       {false && sandboxEnabled && (
-        <div className="p-4 rounded-xl bg-surface border border-border space-y-4 animate-in fade-in duration-200">
+        <div className="p-4 rounded-lg bg-surface border border-border space-y-4 animate-in fade-in duration-200">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-text-primary">
               {t('sandbox.environmentStatus')}
@@ -1376,7 +1354,7 @@ function SandboxTab() {
         <button
           onClick={handleRetrySetup}
           disabled={isInstalling !== null}
-          className="w-full py-3 px-4 rounded-xl bg-accent text-white font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+          className="w-full py-3 px-4 rounded-lg bg-accent text-white font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
         >
           {isInstalling === 'setup' ? (
             <>
@@ -1534,7 +1512,7 @@ function CredentialsTab() {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-error/10 text-error text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-error/10 text-error text-sm">
           <AlertCircle className="w-4 h-4" />
           {error}
         </div>
@@ -1542,7 +1520,7 @@ function CredentialsTab() {
 
       {/* Form */}
       {showForm && (
-        <div className="rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+        <div className="rounded-lg border border-border-subtle bg-background px-4 py-4">
           <CredentialForm
             credential={editingCredential || undefined}
             onSave={handleSave}
@@ -1562,7 +1540,7 @@ function CredentialsTab() {
           description={t('credentials.addCredential')}
         >
           {credentials.length === 0 ? (
-            <div className="rounded-[1.5rem] border border-border-subtle bg-background/40 text-center py-8 text-text-muted">
+            <div className="rounded-lg border border-border-subtle bg-background text-center py-8 text-text-muted">
               <Key className="w-10 h-10 mx-auto mb-3 opacity-50" />
               <p>{t('credentials.noCredentials')}</p>
               <p className="text-sm mt-1">{t('credentials.addCredential')}</p>
@@ -1571,7 +1549,7 @@ function CredentialsTab() {
             credentials.map((cred) => (
               <div
                 key={cred.id}
-                className="rounded-[1.5rem] border border-border-subtle bg-background/40 p-4"
+                className="rounded-lg border border-border-subtle bg-background p-4"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-3">
@@ -1632,7 +1610,7 @@ function CredentialsTab() {
       {!showForm && (
         <button
           onClick={() => setShowForm(true)}
-          className="w-full py-3 px-4 rounded-[1.4rem] border-2 border-dashed border-border-subtle hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent"
+          className="w-full py-3 px-4 rounded-lg border-2 border-dashed border-border-subtle hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent"
         >
           <Plus className="w-5 h-5" />
           {t('credentials.addNewCredential')}
@@ -1688,7 +1666,7 @@ function CredentialForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-[1.4rem] border border-border-subtle bg-background/55 p-4 space-y-4"
+      className="rounded-lg border border-border-subtle bg-background p-4 space-y-4"
     >
       <h3 className="font-medium text-text-primary">
         {credential ? t('credentials.editCredential') : t('credentials.addNewCredential')}
@@ -1996,7 +1974,7 @@ function ConnectorsTab({ isActive }: { isActive: boolean }) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-error/10 text-error text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-error/10 text-error text-sm">
           <AlertCircle className="w-4 h-4" />
           {error}
         </div>
@@ -2019,7 +1997,7 @@ function ConnectorsTab({ isActive }: { isActive: boolean }) {
       {!showAddForm && !editingServer && (
         <div className="space-y-3">
           {servers.length === 0 ? (
-            <div className="rounded-[1.5rem] border border-border-subtle bg-background/40 text-center py-8 text-text-muted">
+            <div className="rounded-lg border border-border-subtle bg-background text-center py-8 text-text-muted">
               <Plug className="w-10 h-10 mx-auto mb-3 opacity-50" />
               <p>{t('mcp.noConnectors')}</p>
               <p className="text-sm mt-1">{t('mcp.addConnector')}</p>
@@ -2049,7 +2027,7 @@ function ConnectorsTab({ isActive }: { isActive: boolean }) {
 
       {/* Preset Environment Configuration Modal */}
       {configuringPreset && (
-        <div className="p-4 rounded-[1.5rem] border border-accent/30 bg-accent/5 space-y-4">
+        <div className="p-4 rounded-lg border border-accent/30 bg-accent/5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-text-primary">
               {t('mcp.configure')} {configuringPreset.preset.name}
@@ -2186,7 +2164,7 @@ function ConnectorsTab({ isActive }: { isActive: boolean }) {
       {!showAddForm && !editingServer && (
         <button
           onClick={() => setShowAddForm(true)}
-          className="w-full py-3 px-4 rounded-xl border-2 border-dashed border-border hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent"
+          className="w-full py-3 px-4 rounded-lg border-2 border-dashed border-border hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent"
         >
           <Plus className="w-5 h-5" />
           {t('mcp.addCustomConnector')}
@@ -2225,7 +2203,7 @@ function ServerCard({
   const [showTools, setShowTools] = useState(false);
 
   return (
-    <div className="rounded-xl border border-border bg-surface overflow-hidden">
+    <div className="rounded-lg border border-border bg-surface overflow-hidden">
       <div className="p-4">
         <div className="flex items-start justify-between">
           <div className="flex-1">
@@ -2466,7 +2444,7 @@ function ServerForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-xl border border-border bg-surface p-4 space-y-4"
+      className="rounded-lg border border-border bg-surface p-4 space-y-4"
     >
       <h3 className="font-medium text-text-primary">
         {server ? t('mcp.editConnector') : t('mcp.addConnectorTitle')}
@@ -3093,13 +3071,13 @@ function SkillsTab({ isActive }: { isActive: boolean }) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-error/10 text-error text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-error/10 text-error text-sm">
           <AlertCircle className="w-4 h-4" />
           {error.key ? t(error.key) : error.text}
         </div>
       )}
       {success && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-success/10 text-success text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-success/10 text-success text-sm">
           <CheckCircle className="w-4 h-4" />
           {success.key ? t(success.key) : success.text}
         </div>
@@ -3188,7 +3166,7 @@ function SkillsTab({ isActive }: { isActive: boolean }) {
           <button
             onClick={handleBrowsePlugins}
             disabled={isLoading || isPluginLoading}
-            className="w-full py-3 px-4 rounded-[1.4rem] border border-border-subtle hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent disabled:opacity-50"
+            className="w-full py-3 px-4 rounded-lg border border-border-subtle hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent disabled:opacity-50"
           >
             {isPluginLoading ? (
               <Loader2 className="w-5 h-5 animate-spin" />
@@ -3200,7 +3178,7 @@ function SkillsTab({ isActive }: { isActive: boolean }) {
           <button
             onClick={handleInstall}
             disabled={isLoading}
-            className="w-full py-3 px-4 rounded-[1.4rem] border-2 border-dashed border-border-subtle hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent disabled:opacity-50"
+            className="w-full py-3 px-4 rounded-lg border-2 border-dashed border-border-subtle hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent disabled:opacity-50"
           >
             <Plus className="w-5 h-5" />
             {t('skills.installSkillFromFolder')}
@@ -3210,7 +3188,7 @@ function SkillsTab({ isActive }: { isActive: boolean }) {
 
       {isPluginModalOpen && (
         <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-2xl border border-border bg-surface shadow-elevated">
+          <div className="w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-lg border border-border bg-surface shadow-elevated">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h3 className="text-lg font-semibold text-text-primary">
                 {t('skills.pluginListTitle')}
@@ -3234,7 +3212,7 @@ function SkillsTab({ isActive }: { isActive: boolean }) {
                 plugins.map((plugin) => (
                   <div
                     key={plugin.pluginId || plugin.name}
-                    className="rounded-xl border border-border bg-surface-hover p-4"
+                    className="rounded-lg border border-border bg-surface-hover p-4"
                   >
                     {(() => {
                       const installedPlugin = getCatalogLookupKeys(plugin)
@@ -3415,7 +3393,7 @@ function SkillsTab({ isActive }: { isActive: boolean }) {
       )}
 
       {pluginToastMessage && (
-        <div className="fixed right-6 bottom-6 z-[80] max-w-md rounded-xl border border-success/30 bg-surface px-4 py-3 shadow-elevated">
+        <div className="fixed right-6 bottom-6 z-[80] max-w-md rounded-lg border border-success/30 bg-surface px-4 py-3 shadow-elevated">
           <div className="flex items-start gap-2 text-success text-sm">
             <CheckCircle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>{pluginToastMessage}</span>
@@ -3441,7 +3419,7 @@ function SkillCard({
   const isBuiltin = skill.type === 'builtin';
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-4">
+    <div className="rounded-lg border border-border bg-surface p-4">
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
@@ -3815,19 +3793,19 @@ function ScheduleTab({ isActive }: { isActive: boolean }) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-error/10 text-error text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-error/10 text-error text-sm">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           {renderLocalizedBannerMessage(error, t)}
         </div>
       )}
       {success && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-success/10 text-success text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-success/10 text-success text-sm">
           <CheckCircle className="w-4 h-4 flex-shrink-0" />
           {renderLocalizedBannerMessage(success, t)}
         </div>
       )}
 
-      <div className="rounded-xl border border-border bg-surface p-4 space-y-3">
+      <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
         <h4 className="text-sm font-medium text-text-primary">
           {editingId ? t('schedule.editTitle') : t('schedule.createTitle')}
         </h4>
@@ -3977,12 +3955,12 @@ function ScheduleTab({ isActive }: { isActive: boolean }) {
       <div className="space-y-2">
         <div className="text-xs text-text-muted">{t('schedule.listHint')}</div>
         {tasks.length === 0 ? (
-          <div className="text-sm text-text-muted text-center py-6 border border-dashed border-border rounded-xl">
+          <div className="text-sm text-text-muted text-center py-6 border border-dashed border-border rounded-lg">
             {t('schedule.empty')}
           </div>
         ) : (
           tasks.map((task) => (
-            <div key={task.id} className="rounded-xl border border-border bg-surface p-3 space-y-2">
+            <div key={task.id} className="rounded-lg border border-border bg-surface p-3 space-y-2">
               {(() => {
                 const lastRunSession = task.lastRunSessionId
                   ? (sessions.find((session) => session.id === task.lastRunSessionId) ?? null)
@@ -4209,7 +4187,7 @@ function ScheduleSelectMenu(props: {
         />
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-64 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-elevated">
+        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-elevated">
           {options.map((option) => {
             const selected = isMulti ? values.includes(option.value) : option.value === value;
             return (
@@ -4327,7 +4305,7 @@ function TimeMultiSelectMenu(props: {
       </button>
       {open && (
         <div
-          className={`absolute right-0 z-20 w-[min(22rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-border/80 bg-surface p-3 shadow-[0_24px_60px_rgba(0,0,0,0.14)] ${
+          className={`absolute right-0 z-20 w-[min(22rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border/80 bg-surface p-3 shadow-[0_24px_60px_rgba(0,0,0,0.14)] ${
             openUpward ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'
           }`}
         >
@@ -4352,13 +4330,13 @@ function TimeMultiSelectMenu(props: {
                   step={60}
                   value={draftTime}
                   onChange={(event) => setDraftTime(event.target.value)}
-                  className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm text-text-primary"
+                  className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-primary"
                 />
                 <button
                   type="button"
                   onClick={addDraftTime}
                   disabled={!isValidTimeValue(draftTime)}
-                  className="inline-flex min-w-[92px] flex-shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-xl bg-accent px-3 py-2 text-sm text-white disabled:opacity-50"
+                  className="inline-flex min-w-[92px] flex-shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-accent px-3 py-2 text-sm text-white disabled:opacity-50"
                 >
                   <Plus className="h-4 w-4" />
                   {t('schedule.pickerAdd')}
@@ -4368,7 +4346,7 @@ function TimeMultiSelectMenu(props: {
             <div className="space-y-2">
               <div className="text-xs text-text-muted">{t('schedule.pickerSelectedTimes')}</div>
               {values.length > 0 ? (
-                <div className="flex flex-wrap gap-2 rounded-xl bg-background/60 p-2">
+                <div className="flex flex-wrap gap-2 rounded-lg bg-background p-2">
                   {values.map((time) => (
                     <button
                       key={time}
@@ -4382,7 +4360,7 @@ function TimeMultiSelectMenu(props: {
                   ))}
                 </div>
               ) : (
-                <div className="rounded-xl bg-background/60 px-3 py-2 text-xs text-text-muted">
+                <div className="rounded-lg bg-background px-3 py-2 text-xs text-text-muted">
                   {t('schedule.pickerNone')}
                 </div>
               )}
@@ -4613,7 +4591,7 @@ function GeneralTab() {
             <button
               key={opt.value}
               onClick={() => updateSettings({ theme: opt.value })}
-              className={`flex-1 px-4 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
+              className={`flex-1 px-4 py-2.5 rounded-lg border-2 text-sm font-medium transition-all ${
                 settings.theme === opt.value
                   ? 'border-accent bg-accent/5 text-text-primary'
                   : 'border-border bg-surface hover:border-accent/50 text-text-secondary'
@@ -4633,7 +4611,7 @@ function GeneralTab() {
             <button
               key={lang.code}
               onClick={() => i18n.changeLanguage(lang.code)}
-              className={`flex-1 px-4 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
+              className={`flex-1 px-4 py-2.5 rounded-lg border-2 text-sm font-medium transition-all ${
                 currentLang === lang.code
                   ? 'border-accent bg-accent/5 text-text-primary'
                   : 'border-border bg-surface hover:border-accent/50 text-text-secondary'
@@ -4797,20 +4775,20 @@ function LogsTab({ isActive }: { isActive: boolean }) {
     <div className="space-y-4">
       {/* Error/Success Messages */}
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-error/10 text-error text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-error/10 text-error text-sm">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       )}
       {success && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-success/10 text-success text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-success/10 text-success text-sm">
           <CheckCircle className="w-4 h-4 flex-shrink-0" />
           {success}
         </div>
       )}
 
       {/* Developer Logs Toggle */}
-      <section className="rounded-[1.6rem] border border-border-subtle bg-background/42 px-4 py-4">
+      <section className="rounded-lg border border-border-subtle bg-background px-4 py-4">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <h4 className="text-sm font-semibold text-text-primary">{t('logs.enableDevLogs')}</h4>
@@ -4838,11 +4816,11 @@ function LogsTab({ isActive }: { isActive: boolean }) {
         description={t('logs.inventoryDescription')}
       >
         <div className="grid grid-cols-2 gap-3">
-          <div className="p-4 rounded-[1.5rem] bg-background/40 border border-border-subtle">
+          <div className="p-4 rounded-lg bg-background border border-border-subtle">
             <div className="text-2xl font-bold text-text-primary">{logFiles.length}</div>
             <div className="text-sm text-text-muted">{t('logs.logFiles')}</div>
           </div>
-          <div className="p-4 rounded-[1.5rem] bg-background/40 border border-border-subtle">
+          <div className="p-4 rounded-lg bg-background border border-border-subtle">
             <div className="text-2xl font-bold text-text-primary">{formatFileSize(totalSize)}</div>
             <div className="text-sm text-text-muted">{t('logs.totalSize')}</div>
           </div>
@@ -4861,7 +4839,7 @@ function LogsTab({ isActive }: { isActive: boolean }) {
             {logFiles.map((file) => (
               <div
                 key={file.path}
-                className="p-3 rounded-xl bg-background/45 border border-border-subtle"
+                className="p-3 rounded-lg bg-background border border-border-subtle"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
@@ -4883,7 +4861,7 @@ function LogsTab({ isActive }: { isActive: boolean }) {
           title={t('logs.logsDirectory')}
           description={t('logs.directoryDescription')}
         >
-          <div className="p-3 rounded-xl bg-background/45 border border-border-subtle">
+          <div className="p-3 rounded-lg bg-background border border-border-subtle">
             <div className="text-xs text-text-muted mb-1">{t('logs.logsDirectory')}</div>
             <div className="font-mono text-xs text-text-secondary break-all">{logsDirectory}</div>
           </div>
@@ -4899,7 +4877,7 @@ function LogsTab({ isActive }: { isActive: boolean }) {
           <button
             onClick={handleExport}
             disabled={isLoading}
-            className="py-3 px-4 rounded-xl bg-accent text-white font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+            className="py-3 px-4 rounded-lg bg-accent text-white font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
           >
             {isLoading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -4911,7 +4889,7 @@ function LogsTab({ isActive }: { isActive: boolean }) {
           <button
             onClick={handleOpen}
             disabled={isLoading}
-            className="py-3 px-4 rounded-[1.4rem] bg-background/45 border border-border-subtle text-text-primary font-medium hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+            className="py-3 px-4 rounded-lg bg-background border border-border-subtle text-text-primary font-medium hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
           >
             <Globe className="w-4 h-4" />
             <span className="text-sm">{t('logs.openFolder')}</span>
@@ -4919,7 +4897,7 @@ function LogsTab({ isActive }: { isActive: boolean }) {
           <button
             onClick={handleClear}
             disabled={isLoading || logFiles.length === 0}
-            className="py-3 px-4 rounded-xl bg-error/10 text-error font-medium hover:bg-error/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+            className="py-3 px-4 rounded-lg bg-error/10 text-error font-medium hover:bg-error/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
           >
             <Trash2 className="w-4 h-4" />
             <span className="text-sm">{t('logs.clearAll')}</span>

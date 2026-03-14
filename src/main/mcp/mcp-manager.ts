@@ -17,7 +17,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { app } from 'electron';
 import path from 'path';
-import { log, logError, logWarn } from '../utils/logger';
+import { log, logError, logWarn, logCtx, logCtxError, logTiming } from '../utils/logger';
 
 /**
  * MCP Server Configuration
@@ -1108,8 +1108,9 @@ export class MCPManager {
       }
     }
 
-    log(`[MCPManager] Calling tool ${actualToolName} on server ${tool.serverName}`);
+    logCtx(`[MCPManager] Calling tool ${actualToolName} on server ${tool.serverName}`);
 
+    const callStartTime = Date.now();
     const maxRetries = 2;
     let lastError: any;
     let compatHotReloadTried = false;
@@ -1152,11 +1153,12 @@ export class MCPManager {
           }
         }
 
+        logTiming(`MCP tool ${actualToolName}`, callStartTime);
         return result;
       } catch (error: any) {
         lastError = error;
         const errorMsg = error.message || String(error);
-        logError(`[MCPManager] Error calling tool ${toolName} (attempt ${attempt + 1}/${maxRetries + 1}):`, errorMsg);
+        logCtxError(`[MCPManager] Error calling tool ${toolName} (attempt ${attempt + 1}/${maxRetries + 1}):`, errorMsg);
 
         if (attempt >= maxRetries) {
           break;

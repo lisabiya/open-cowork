@@ -5,6 +5,44 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
+import { AsyncLocalStorage } from 'async_hooks';
+import { randomUUID } from 'crypto';
+
+// ── Structured log context (propagated via AsyncLocalStorage) ──
+
+export interface LogContext {
+  sessionId?: string;
+  traceId?: string;
+  module?: string;
+}
+
+export const logStorage = new AsyncLocalStorage<LogContext>();
+
+/**
+ * Run a callback with structured log context.
+ * All logCtx/logCtxWarn/logCtxError calls within `fn` (including nested async)
+ * will automatically include the provided context in their output.
+ */
+export function runWithLogContext<T>(ctx: LogContext, fn: () => T): T {
+  return logStorage.run(ctx, fn);
+}
+
+/**
+ * Generate a short trace ID for a single agent query.
+ * 8 hex chars = enough to disambiguate concurrent queries.
+ */
+export function generateTraceId(): string {
+  return randomUUID().slice(0, 8);
+}
+
+function formatCtxPrefix(): string {
+  const ctx = logStorage.getStore();
+  if (!ctx) return '';
+  const parts: string[] = [];
+  if (ctx.sessionId) parts.push(`[sid:${ctx.sessionId.slice(0, 8)}]`);
+  if (ctx.traceId) parts.push(`[tid:${ctx.traceId}]`);
+  return parts.length > 0 ? parts.join('') + ' ' : '';
+}
 
 // Log file configuration
 let logFilePath: string | null = null;
@@ -325,9 +363,10 @@ function writeToFile(level: string, ...args: unknown[]): void {
   if (logStream) {
     try {
       const timestamp = getTimestamp();
+      const ctxPrefix = formatCtxPrefix();
       const message = args.map((arg) => serializeLogArg(arg)).join(' ');
 
-      logStream.write(`[${timestamp}] [${level}] ${message}\n`);
+      logStream.write(`[${timestamp}] [${level}] ${ctxPrefix}${message}\n`);
 
       // Check if rotation is needed (every 100 log entries)
       if (Math.random() < 0.01) {
@@ -362,6 +401,38 @@ export function logWarn(...args: unknown[]): void {
 export function logError(...args: unknown[]): void {
   safeConsoleError(`[${getTimestamp()}]`, ...args);
   writeToFile('ERROR', ...args);
+}
+
+// ── Context-aware logging — reads sessionId/traceId from AsyncLocalStorage ──
+
+export function logCtx(...args: unknown[]): void {
+  const prefix = formatCtxPrefix();
+  safeConsoleLog(`[${getTimestamp()}]`, prefix, ...args);
+  writeToFile('INFO', ...args);
+}
+
+export function logCtxWarn(...args: unknown[]): void {
+  const prefix = formatCtxPrefix();
+  safeConsoleWarn(`[${getTimestamp()}]`, prefix, ...args);
+  writeToFile('WARN', ...args);
+}
+
+export function logCtxError(...args: unknown[]): void {
+  const prefix = formatCtxPrefix();
+  safeConsoleError(`[${getTimestamp()}]`, prefix, ...args);
+  writeToFile('ERROR', ...args);
+}
+
+/**
+ * Log a timing measurement. Automatically includes context prefix.
+ * Usage: const start = Date.now(); ... logTiming('queryAgent', start);
+ */
+export function logTiming(label: string, startTime: number): void {
+  const elapsed = Date.now() - startTime;
+  const prefix = formatCtxPrefix();
+  const msg = `[TIMING] ${label}: ${elapsed}ms`;
+  safeConsoleLog(`[${getTimestamp()}]`, prefix, msg);
+  writeToFile('INFO', msg);
 }
 
 /**

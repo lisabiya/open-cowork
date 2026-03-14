@@ -17,6 +17,7 @@ export interface PiModelLookupOptions {
   configProvider?: string;
   rawProvider?: string;
   customBaseUrl?: string;
+  customProtocol?: string;
 }
 
 export interface PiModelLookupCandidate {
@@ -181,6 +182,14 @@ export function applyPiModelRuntimeOverrides(
         supportsDeveloperRole: false,
       },
     } as typeof nextModel;
+  }
+
+  // Handle custom provider with explicit protocol override
+  if (isCustomProvider && options.customProtocol) {
+    const targetApi = inferPiApi(options.customProtocol);
+    if (nextModel.api !== targetApi) {
+      nextModel = { ...nextModel, api: targetApi } as typeof nextModel;
+    }
   }
 
   return nextModel;

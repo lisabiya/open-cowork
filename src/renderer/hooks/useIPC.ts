@@ -582,6 +582,16 @@ export function useIPC() {
     [send]
   );
 
+  const batchDeleteSessions = useCallback(
+    (sessionIds: string[]) => {
+      useAppStore.getState().removeSessions(sessionIds);
+      if (isElectron) {
+        send({ type: 'session.batchDelete', payload: { sessionIds } });
+      }
+    },
+    [send]
+  );
+
   const listSessions = useCallback(() => {
     if (!isElectron) return;
     send({ type: 'session.list', payload: {} });
@@ -684,6 +694,7 @@ export function useIPC() {
     continueSession,
     stopSession,
     deleteSession,
+    batchDeleteSessions,
     listSessions,
     getSessionMessages,
     getSessionTraceSteps,

@@ -571,7 +571,14 @@
     "previousWeek": "Previous 7 Days",
     "older": "Older",
     "settings": "Settings",
-    "themeToggle": "Toggle theme"
+    "themeToggle": "Toggle theme",
+    "manage": "Manage",
+    "selectAll": "Select All",
+    "deselectAll": "Deselect All",
+    "nSelected": "{{count}} selected",
+    "batchDeleteConfirm": "Delete {{count}} conversations? This cannot be undone.",
+    "cancel": "Cancel",
+    "confirmDelete": "Delete"
   },
   "chat": {
     "sendMessage": "Send message",

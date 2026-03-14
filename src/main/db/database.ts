@@ -213,6 +213,7 @@ function getDatabasePath(): string {
  * Initialize the database schema
  */
 function initializeSchema(database: Database.Database): void {
+  try {
   // Enable WAL mode for better performance
   database.pragma('journal_mode = WAL');
   
@@ -342,6 +343,10 @@ function initializeSchema(database: Database.Database): void {
   `);
   
   log('[Database] Schema initialized');
+  } catch (error) {
+    logError('[Database] Schema initialization failed:', error);
+    throw error;
+  }
 }
 
 function ensureColumn(

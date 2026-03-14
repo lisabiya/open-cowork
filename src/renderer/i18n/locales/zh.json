@@ -571,7 +571,14 @@
     "previousWeek": "最近 7 天",
     "older": "更早",
     "settings": "设置",
-    "themeToggle": "切换主题"
+    "themeToggle": "切换主题",
+    "manage": "管理",
+    "selectAll": "全选",
+    "deselectAll": "取消全选",
+    "nSelected": "已选 {{count}} 个",
+    "batchDeleteConfirm": "删除 {{count}} 个对话？此操作无法撤销。",
+    "cancel": "取消",
+    "confirmDelete": "删除"
   },
   "chat": {
     "sendMessage": "发送消息",

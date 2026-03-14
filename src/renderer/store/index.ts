@@ -87,6 +87,7 @@ interface AppState {
   addSession: (session: Session) => void;
   updateSession: (sessionId: string, updates: Partial<Session>) => void;
   removeSession: (sessionId: string) => void;
+  removeSessions: (sessionIds: string[]) => void;
   setActiveSession: (sessionId: string | null) => void;
 
   addMessage: (sessionId: string, message: Message) => void;
@@ -246,6 +247,50 @@ export const useAppStore = create<AppState>((set) => ({
         executionClockBySession: restExecutionClocks,
         traceStepsBySession: restTraces,
         activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
+      };
+    }),
+
+  removeSessions: (sessionIds) =>
+    set((state) => {
+      const idSet = new Set(sessionIds);
+      const newMessages: Record<string, Message[]> = {};
+      const newPartials: Record<string, string> = {};
+      const newThinkingPartials: Record<string, string> = {};
+      const newPendingTurns: Record<string, string[]> = {};
+      const newActiveTurns: Record<string, { stepId: string; userMessageId: string } | null> = {};
+      const newTraces: Record<string, TraceStep[]> = {};
+
+      for (const key of Object.keys(state.messagesBySession)) {
+        if (!idSet.has(key)) newMessages[key] = state.messagesBySession[key];
+      }
+      for (const key of Object.keys(state.partialMessagesBySession)) {
+        if (!idSet.has(key)) newPartials[key] = state.partialMessagesBySession[key];
+      }
+      for (const key of Object.keys(state.partialThinkingBySession)) {
+        if (!idSet.has(key)) newThinkingPartials[key] = state.partialThinkingBySession[key];
+      }
+      for (const key of Object.keys(state.pendingTurnsBySession)) {
+        if (!idSet.has(key)) newPendingTurns[key] = state.pendingTurnsBySession[key];
+      }
+      for (const key of Object.keys(state.activeTurnsBySession)) {
+        if (!idSet.has(key)) newActiveTurns[key] = state.activeTurnsBySession[key];
+      }
+      for (const key of Object.keys(state.traceStepsBySession)) {
+        if (!idSet.has(key)) newTraces[key] = state.traceStepsBySession[key];
+      }
+
+      return {
+        sessions: state.sessions.filter((s) => !idSet.has(s.id)),
+        messagesBySession: newMessages,
+        partialMessagesBySession: newPartials,
+        partialThinkingBySession: newThinkingPartials,
+        pendingTurnsBySession: newPendingTurns,
+        activeTurnsBySession: newActiveTurns,
+        traceStepsBySession: newTraces,
+        activeSessionId:
+          state.activeSessionId && idSet.has(state.activeSessionId)
+            ? null
+            : state.activeSessionId,
       };
     }),
 

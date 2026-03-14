@@ -1090,7 +1090,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
       const resolvedBaseUrl =
         provider === 'custom' || provider === 'ollama'
           ? baseUrl.trim()
-          : (currentPreset.baseUrl || baseUrl).trim();
+          : (baseUrl.trim() || currentPreset.baseUrl || '').trim();
 
       const result = await window.electronAPI.config.test({
         provider,
@@ -1146,7 +1146,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
       const resolvedBaseUrl =
         provider === 'custom' || provider === 'ollama'
           ? baseUrl.trim()
-          : (currentPreset.baseUrl || baseUrl).trim();
+          : (baseUrl.trim() || currentPreset.baseUrl || '').trim();
 
       const finalModel = useCustomModel ? customModel.trim() : model;
 

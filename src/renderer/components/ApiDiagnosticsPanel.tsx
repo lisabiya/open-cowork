@@ -6,10 +6,16 @@ import {
   MinusCircle,
   Circle,
   Stethoscope,
+  Globe,
+  Cable,
+  ShieldCheck,
+  KeyRound,
+  Cpu,
 } from 'lucide-react';
 import type {
   DiagnosticResult,
   DiagnosticStep,
+  DiagnosticStepName,
   DiagnosticStepStatus,
 } from '../types';
 
@@ -21,70 +27,170 @@ interface ApiDiagnosticsPanelProps {
 }
 
 const STEP_NAME_FALLBACKS: Record<string, string> = {
-  dns: 'DNS 解析',
-  tcp: 'TCP 连接',
-  tls: 'TLS 握手',
-  auth: 'API 认证',
-  model: '模型验证',
+  dns: 'DNS',
+  tcp: 'TCP',
+  tls: 'TLS',
+  auth: 'Auth',
+  model: 'Model',
 };
 
-function StatusIcon({ status }: { status: DiagnosticStepStatus }) {
+const STEP_ICONS: Record<DiagnosticStepName, React.FC<{ className?: string }>> = {
+  dns: Globe,
+  tcp: Cable,
+  tls: ShieldCheck,
+  auth: KeyRound,
+  model: Cpu,
+};
+
+/** Small status badge (checkmark / X / minus) overlaid on the step icon */
+function StatusBadge({ status }: { status: DiagnosticStepStatus }) {
+  const base = 'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full';
   switch (status) {
-    case 'running':
-      return <Loader2 className="w-4 h-4 text-accent animate-spin" />;
     case 'ok':
-      return <CheckCircle className="w-4 h-4 text-success" />;
+      return <CheckCircle className={`${base} text-success`} />;
     case 'fail':
-      return <XCircle className="w-4 h-4 text-error" />;
+      return <XCircle className={`${base} text-error`} />;
     case 'skip':
-      return <MinusCircle className="w-4 h-4 text-text-muted" />;
+      return <MinusCircle className={`${base} text-text-muted`} />;
+    case 'running':
+      return <Loader2 className={`${base} text-accent animate-spin`} />;
     case 'pending':
     default:
-      return <Circle className="w-4 h-4 text-text-muted" />;
+      return <Circle className={`${base} text-text-muted opacity-40`} />;
   }
 }
 
-function StepRow({ step }: { step: DiagnosticStep }) {
+/** Color classes for each status */
+function statusColors(status: DiagnosticStepStatus) {
+  switch (status) {
+    case 'ok':
+      return {
+        border: 'border-success/50',
+        bg: 'bg-success/8',
+        text: 'text-success',
+        iconText: 'text-success',
+      };
+    case 'fail':
+      return {
+        border: 'border-error/50',
+        bg: 'bg-error/8',
+        text: 'text-error',
+        iconText: 'text-error',
+      };
+    case 'skip':
+      return {
+        border: 'border-border border-dashed',
+        bg: 'bg-transparent',
+        text: 'text-text-muted',
+        iconText: 'text-text-muted',
+      };
+    case 'running':
+      return {
+        border: 'border-accent/60',
+        bg: 'bg-accent/8',
+        text: 'text-accent',
+        iconText: 'text-accent',
+      };
+    case 'pending':
+    default:
+      return {
+        border: 'border-border',
+        bg: 'bg-transparent',
+        text: 'text-text-muted',
+        iconText: 'text-text-muted opacity-40',
+      };
+  }
+}
+
+/** Connector line between steps */
+function Connector({
+  leftStatus,
+  rightStatus,
+}: {
+  leftStatus: DiagnosticStepStatus;
+  rightStatus: DiagnosticStepStatus;
+}) {
+  // After a failure, connectors become muted
+  const isAfterFail = leftStatus === 'fail';
+  const isSkipOrPending =
+    rightStatus === 'skip' || rightStatus === 'pending' || leftStatus === 'skip';
+
+  let lineClass = 'flex-1 h-px mx-0.5 transition-colors duration-300 ';
+  if (isAfterFail) {
+    lineClass += 'bg-error/20 border-t border-dashed border-error/30';
+  } else if (isSkipOrPending) {
+    lineClass += 'border-t border-dashed border-border';
+  } else if (leftStatus === 'ok') {
+    lineClass += 'bg-success/40';
+  } else if (leftStatus === 'running') {
+    lineClass += 'bg-accent/30';
+  } else {
+    lineClass += 'bg-border';
+  }
+
+  return <div className={lineClass} />;
+}
+
+/** A single pipeline node */
+function PipelineNode({ step }: { step: DiagnosticStep }) {
   const { t } = useTranslation();
   const label =
     t(`api.diagnostic.step.${step.name}`, '') || STEP_NAME_FALLBACKS[step.name] || step.name;
+  const colors = statusColors(step.status);
+  const Icon = STEP_ICONS[step.name] || Globe;
 
-  // Resolve fix key from backend (format: "key" or "key:param")
+  const isRunning = step.status === 'running';
+
+  return (
+    <div className="flex flex-col items-center gap-1 min-w-0">
+      {/* Node card */}
+      <div
+        className={`
+          relative flex flex-col items-center justify-center
+          w-14 h-14 rounded-xl border transition-all duration-300
+          ${colors.border} ${colors.bg}
+          ${isRunning ? 'animate-pulse' : ''}
+        `}
+      >
+        <Icon className={`w-5 h-5 ${colors.iconText}`} />
+        <StatusBadge status={step.status} />
+      </div>
+
+      {/* Label */}
+      <span className={`text-[10px] font-medium leading-tight ${colors.text}`}>{label}</span>
+
+      {/* Latency */}
+      {step.latencyMs !== undefined && step.status !== 'pending' ? (
+        <span className="text-[10px] text-text-muted leading-tight">{step.latencyMs}ms</span>
+      ) : (
+        <span className="text-[10px] text-transparent leading-tight select-none">-</span>
+      )}
+    </div>
+  );
+}
+
+/** Error detail card shown below the pipeline */
+function FailureDetail({ step }: { step: DiagnosticStep }) {
+  const { t } = useTranslation();
+
   const fixText = (() => {
     if (!step.fix) return '';
     const [key, ...paramParts] = step.fix.split(':');
-    const param = paramParts.join(':'); // rejoin in case param itself has colons
+    const param = paramParts.join(':');
     const i18nKey = `api.diagnostic.fix.${key}`;
     const resolved = t(i18nKey, { host: param, model: param, defaultValue: '' });
     return resolved || step.fix;
   })();
 
   return (
-    <div className="relative pl-6 pb-4 last:pb-0">
-      {/* progress line connector */}
-      <div className="absolute left-[7px] top-0 bottom-0 w-px bg-border last:hidden" />
-      {/* icon dot */}
-      <div className="absolute left-0 top-0.5">
-        <StatusIcon status={step.status} />
-      </div>
-      {/* content */}
-      <div className="ml-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-text-primary">{label}</span>
-          {step.latencyMs !== undefined && step.status !== 'pending' && (
-            <span className="text-xs text-text-muted">{step.latencyMs} ms</span>
-          )}
-        </div>
-        {step.status === 'fail' && (step.error || step.fix) && (
-          <div className="mt-1.5 rounded-lg bg-error/10 border border-error/20 px-3 py-2 text-xs">
-            {step.error && <p className="text-error">{step.error}</p>}
-            {fixText && <p className="mt-1 text-text-secondary">{fixText}</p>}
-          </div>
-        )}
-      </div>
+    <div className="mt-2 rounded-lg bg-error/8 border border-error/20 px-3 py-2 text-xs">
+      {step.error && <p className="text-error font-medium">{step.error}</p>}
+      {fixText && <p className="mt-1 text-text-secondary">{fixText}</p>}
     </div>
   );
 }
+
+const PENDING_STEP_NAMES: DiagnosticStepName[] = ['dns', 'tcp', 'tls', 'auth', 'model'];
 
 export default function ApiDiagnosticsPanel({
   result,
@@ -95,13 +201,12 @@ export default function ApiDiagnosticsPanel({
   const { t } = useTranslation();
   const showSteps = result !== null;
 
-  // When running but no result yet, show placeholder pending steps
-  const PENDING_STEP_NAMES = ['dns', 'tcp', 'tls', 'auth', 'model'] as const;
   const placeholderSteps: DiagnosticStep[] = PENDING_STEP_NAMES.map((name) => ({
     name,
     status: 'pending' as const,
   }));
   const displaySteps = result?.steps ?? (isRunning ? placeholderSteps : []);
+  const failedStep = displaySteps.find((s) => s.status === 'fail');
 
   return (
     <div className="space-y-3">
@@ -123,14 +228,26 @@ export default function ApiDiagnosticsPanel({
         {t('api.diagnostic.runDiagnostics', 'Diagnose Connection')}
       </button>
 
-      {/* Step list */}
+      {/* Pipeline visualization */}
       {(showSteps || isRunning) && (
         <div className="rounded-xl bg-background border border-border p-4">
-          <div className="relative">
-            {displaySteps.map((step) => (
-              <StepRow key={step.name} step={step} />
+          {/* Horizontal pipeline */}
+          <div className="flex items-center justify-between gap-0">
+            {displaySteps.map((step, i) => (
+              <div key={step.name} className="contents">
+                <PipelineNode step={step} />
+                {i < displaySteps.length - 1 && (
+                  <Connector
+                    leftStatus={step.status}
+                    rightStatus={displaySteps[i + 1].status}
+                  />
+                )}
+              </div>
             ))}
           </div>
+
+          {/* Failure detail */}
+          {failedStep && <FailureDetail step={failedStep} />}
 
           {/* Overall summary */}
           {result && !isRunning && (
@@ -147,7 +264,7 @@ export default function ApiDiagnosticsPanel({
                         result.failedAt,
                     })}
               </span>
-              <span className="text-text-muted text-xs">{result.totalLatencyMs} ms</span>
+              <span className="text-text-muted text-xs">{result.totalLatencyMs}ms</span>
             </div>
           )}
         </div>

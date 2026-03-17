@@ -514,6 +514,7 @@ export interface ApiTestInput {
   baseUrl?: string;
   customProtocol?: AppConfig['customProtocol'];
   model?: string;
+  useLiveRequest?: boolean;
 }
 
 export interface ApiTestResult {

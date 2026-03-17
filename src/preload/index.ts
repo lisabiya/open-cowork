@@ -115,7 +115,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('config.listModels', payload),
     diagnose: (input: DiagnosticInput): Promise<DiagnosticResult> =>
       ipcRenderer.invoke('config.diagnose', input),
-    discoverLocal: (payload?: { baseUrl?: string }): Promise<{ available: boolean; baseUrl: string; models?: string[]; status: 'unavailable' | 'service_available' | 'model_usable' | 'model_unusable'; probeModel?: string; probeError?: string }> =>
+    discoverLocal: (payload?: { baseUrl?: string }): Promise<{ available: boolean; baseUrl: string; models?: string[]; status: 'unavailable' | 'service_available' | 'model_usable' | 'model_unusable' | 'model_loading'; probeModel?: string; probeError?: string }> =>
       ipcRenderer.invoke('config.discover-local', payload),
   },
 
@@ -367,7 +367,7 @@ declare global {
         test: (config: ApiTestInput) => Promise<ApiTestResult>;
         listModels: (payload: { provider: AppConfig['provider']; apiKey: string; baseUrl?: string }) => Promise<ProviderModelInfo[]>;
         diagnose: (input: DiagnosticInput) => Promise<DiagnosticResult>;
-        discoverLocal: (payload?: { baseUrl?: string }) => Promise<{ available: boolean; baseUrl: string; models?: string[]; status: 'unavailable' | 'service_available' | 'model_usable' | 'model_unusable'; probeModel?: string; probeError?: string }>;
+        discoverLocal: (payload?: { baseUrl?: string }) => Promise<{ available: boolean; baseUrl: string; models?: string[]; status: 'unavailable' | 'service_available' | 'model_usable' | 'model_unusable' | 'model_loading'; probeModel?: string; probeError?: string }>;
       };
       window: {
         minimize: () => void;

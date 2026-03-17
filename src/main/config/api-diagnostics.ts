@@ -621,7 +621,7 @@ export async function discoverLocalOllama(input?: {
       });
     } catch (retryError) {
       const errMsg = retryError instanceof Error ? retryError.message : String(retryError);
-      if (/timeout|abort/i.test(errMsg)) {
+      if (/timed?\s*out|timeout|abort/i.test(errMsg)) {
         log('[Diagnostics] Local Ollama model still loading (probe timed out after retries)', { probeModel });
         return {
           available: true,

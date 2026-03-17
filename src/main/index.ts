@@ -1032,11 +1032,21 @@ ipcMain.handle('client-invoke', async (_event, data: ClientEvent) => {
 });
 
 ipcMain.handle('get-version', () => {
-  return app.getVersion();
+  try {
+    return app.getVersion();
+  } catch (error) {
+    logError('[IPC] Error getting version:', error);
+    return 'unknown';
+  }
 });
 
 ipcMain.handle('system.getTheme', () => {
-  return { shouldUseDarkColors: nativeTheme.shouldUseDarkColors };
+  try {
+    return { shouldUseDarkColors: nativeTheme.shouldUseDarkColors };
+  } catch (error) {
+    logError('[IPC] Error getting theme:', error);
+    return { shouldUseDarkColors: true };
+  }
 });
 
 ipcMain.handle('shell.openExternal', async (_event, url: string) => {
@@ -1247,11 +1257,21 @@ ipcMain.handle('dialog.selectFiles', async () => {
 
 // Config IPC handlers
 ipcMain.handle('config.get', () => {
-  return configStore.getAll();
+  try {
+    return configStore.getAll();
+  } catch (error) {
+    logError('[Config] Error getting config:', error);
+    return {};
+  }
 });
 
 ipcMain.handle('config.getPresets', () => {
-  return getPiAiModelPresets();
+  try {
+    return getPiAiModelPresets();
+  } catch (error) {
+    logError('[Config] Error getting presets:', error);
+    return [];
+  }
 });
 
 const buildAgentRuntimeSignature = (config: AppConfig): string =>
@@ -1350,7 +1370,12 @@ ipcMain.handle('config.switchSet', async (_event, payload: { id: string }) => {
 });
 
 ipcMain.handle('config.isConfigured', () => {
-  return configStore.isConfigured();
+  try {
+    return configStore.isConfigured();
+  } catch (error) {
+    logError('[Config] Error checking configured status:', error);
+    return false;
+  }
 });
 
 ipcMain.handle('config.test', async (_event, payload: ApiTestInput): Promise<ApiTestResult> => {
@@ -1380,13 +1405,23 @@ ipcMain.handle(
 );
 
 ipcMain.handle('config.diagnose', async (_event, payload: DiagnosticInput) => {
-  const { runDiagnostics } = await import('./config/api-diagnostics');
-  return runDiagnostics(payload);
+  try {
+    const { runDiagnostics } = await import('./config/api-diagnostics');
+    return await runDiagnostics(payload);
+  } catch (error) {
+    logError('[Config] Error running diagnostics:', error);
+    throw error;
+  }
 });
 
 ipcMain.handle('config.discover-local', async (_event, payload?: { baseUrl?: string }) => {
-  const { discoverLocalOllama } = await import('./config/api-diagnostics');
-  return discoverLocalOllama(payload);
+  try {
+    const { discoverLocalOllama } = await import('./config/api-diagnostics');
+    return await discoverLocalOllama(payload);
+  } catch (error) {
+    logError('[Config] Error discovering local services:', error);
+    return [];
+  }
 });
 
 
@@ -1628,10 +1663,15 @@ ipcMain.handle('skills.validate', async (_event, skillPath: string) => {
 });
 
 ipcMain.handle('skills.getStoragePath', async () => {
-  if (!skillsManager) {
-    throw new Error('SkillsManager not initialized');
+  try {
+    if (!skillsManager) {
+      return null;
+    }
+    return skillsManager.getGlobalSkillsPath();
+  } catch (error) {
+    logError('[Skills] Error getting storage path:', error);
+    return null;
   }
-  return skillsManager.getGlobalSkillsPath();
 });
 
 ipcMain.handle('skills.setStoragePath', async (_event, targetPath: string, migrate = true) => {
@@ -1754,19 +1794,31 @@ ipcMain.handle('plugins.uninstall', async (_event, pluginId: string) => {
 
 // Window control IPC handlers
 ipcMain.on('window.minimize', () => {
-  mainWindow?.minimize();
+  try {
+    mainWindow?.minimize();
+  } catch (error) {
+    logError('[Window] Error minimizing:', error);
+  }
 });
 
 ipcMain.on('window.maximize', () => {
-  if (mainWindow?.isMaximized()) {
-    mainWindow.unmaximize();
-  } else {
-    mainWindow?.maximize();
+  try {
+    if (mainWindow?.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow?.maximize();
+    }
+  } catch (error) {
+    logError('[Window] Error maximizing:', error);
   }
 });
 
 ipcMain.on('window.close', () => {
-  mainWindow?.close();
+  try {
+    mainWindow?.close();
+  } catch (error) {
+    logError('[Window] Error closing:', error);
+  }
 });
 
 // Sandbox IPC handlers
@@ -2278,8 +2330,13 @@ ipcMain.handle('remote.restart', async () => {
 });
 
 ipcMain.handle('schedule.list', () => {
-  if (!scheduledTaskManager) return [];
-  return scheduledTaskManager.list();
+  try {
+    if (!scheduledTaskManager) return [];
+    return scheduledTaskManager.list();
+  } catch (error) {
+    logError('[Schedule] Error listing tasks:', error);
+    return [];
+  }
 });
 
 ipcMain.handle('schedule.create', async (_event, payload: ScheduledTaskCreateInput) => {

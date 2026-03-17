@@ -734,9 +734,20 @@ export class WSLBridge implements SandboxExecutor {
     });
 
     // Handle stdout (JSON-RPC responses)
+    const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
     this.wslProcess.stdout?.on('data', (data: Buffer) => {
-      this.buffer += data.toString();
-      this.processBuffer();
+      try {
+        this.buffer += data.toString();
+        if (this.buffer.length > MAX_BUFFER_SIZE) {
+          logError('[WSL] Buffer size exceeded limit, disconnecting agent');
+          this.buffer = '';
+          this.wslProcess?.kill();
+          return;
+        }
+        this.processBuffer();
+      } catch (error) {
+        logError('[WSL] Error processing stdout data:', error);
+      }
     });
 
     // Handle stderr (logging)

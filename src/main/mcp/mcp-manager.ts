@@ -615,9 +615,13 @@ export class MCPManager {
           // Capture stdout for debugging
           if (process.stdout) {
             process.stdout.on('data', (data: Buffer) => {
-              const message = data.toString().trim();
-              if (message) {
-                log(`[MCPManager] MCP server stdout: ${message}`);
+              try {
+                const message = data.toString().trim();
+                if (message) {
+                  log(`[MCPManager] MCP server stdout: ${message}`);
+                }
+              } catch (error) {
+                logError('[MCPManager] Error processing MCP server stdout:', error);
               }
             });
           }
@@ -625,9 +629,13 @@ export class MCPManager {
           // Listen to stderr for error messages
           if (process.stderr) {
             process.stderr.on('data', (data: Buffer) => {
-              const message = data.toString().trim();
-              if (message) {
-                logError(`[MCPManager] MCP server stderr: ${message}`);
+              try {
+                const message = data.toString().trim();
+                if (message) {
+                  logError(`[MCPManager] MCP server stderr: ${message}`);
+                }
+              } catch (error) {
+                logError('[MCPManager] Error processing MCP server stderr:', error);
               }
             });
           }

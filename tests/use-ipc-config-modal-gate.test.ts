@@ -10,7 +10,7 @@ describe('useIPC config/status gating', () => {
 
     expect(source).toContain('const isInitialConfigStatus = !store.hasSeenInitialConfigStatus;');
     expect(source).toContain('store.markInitialConfigStatusSeen();');
-    expect(source).toContain('if (isInitialConfigStatus && !event.payload.isConfigured) {');
+    expect(source).toContain('if (isInitialConfigStatus) {');
     expect(source).not.toContain(
       'if (!event.payload.isConfigured) {\n            store.setShowConfigModal(true);'
     );

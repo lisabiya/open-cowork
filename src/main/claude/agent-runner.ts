@@ -828,6 +828,7 @@ ${hints.join('\n')}
     };
 
     const thinkingStepId = uuidv4();
+    let abortedByTimeout = false;
 
     try {
       this.pathResolver.registerSession(session.id, session.mountedPaths);
@@ -1639,7 +1640,6 @@ Tool routing:
       let compactionStepId: string | undefined;
       let hasEmittedError = false;
       let terminalErrorText: string | undefined;
-      let abortedByTimeout = false;
       const thinkParser = new ThinkTagStreamParser();
       const promptStartedAt = Date.now();
 

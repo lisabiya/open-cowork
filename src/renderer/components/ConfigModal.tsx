@@ -100,6 +100,7 @@ export function ConfigModal({
     handleTest,
     refreshModelOptions,
     discoverLocalOllama,
+    shouldShowOllamaManualModelToggle,
   } = useApiConfigState({
     enabled: isOpen,
     initialConfig,
@@ -347,18 +348,22 @@ export function ConfigModal({
                     {isRefreshingModels ? t('api.refreshingModels') : t('api.refreshModels')}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={toggleCustomModel}
-                  className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-all ${
-                    useCustomModel
-                      ? 'bg-accent-muted text-accent'
-                      : 'bg-surface-hover text-text-secondary hover:bg-surface-active'
-                  }`}
-                >
-                  <Edit3 className="w-3 h-3" />
-                  {useCustomModel ? t('api.usePreset') : t('api.custom')}
-                </button>
+                {shouldShowOllamaManualModelToggle && (
+                  <button
+                    type="button"
+                    onClick={toggleCustomModel}
+                    className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-all ${
+                      useCustomModel
+                        ? 'bg-accent-muted text-accent'
+                        : 'bg-surface-hover text-text-secondary hover:bg-surface-active'
+                    }`}
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    {isOllamaMode
+                      ? (useCustomModel ? t('api.useDetectedModels') : t('api.manualModel'))
+                      : (useCustomModel ? t('api.usePreset') : t('api.custom'))}
+                  </button>
+                )}
               </div>
             </div>
             {useCustomModel ? (

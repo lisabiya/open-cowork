@@ -517,6 +517,7 @@ export interface ApiTestInput {
   customProtocol?: AppConfig['customProtocol'];
   model?: string;
   useLiveRequest?: boolean;
+  verificationLevel?: DiagnosticVerificationLevel;
 }
 
 export interface ApiTestResult {
@@ -540,6 +541,8 @@ export interface ApiTestResult {
 // API Diagnostics types
 export type DiagnosticStepName = 'dns' | 'tcp' | 'tls' | 'auth' | 'model';
 export type DiagnosticStepStatus = 'pending' | 'running' | 'ok' | 'fail' | 'skip';
+export type DiagnosticVerificationLevel = 'fast' | 'deep';
+export type DiagnosticAdvisoryCode = 'not_deep_verified' | 'model_loading' | 'manual_model';
 
 export interface DiagnosticStep {
   name: DiagnosticStepName;
@@ -555,6 +558,9 @@ export interface DiagnosticResult {
   /** Which step failed first (null if all ok) */
   failedAt?: DiagnosticStepName;
   totalLatencyMs: number;
+  verificationLevel?: DiagnosticVerificationLevel;
+  advisoryCode?: DiagnosticAdvisoryCode;
+  advisoryText?: string;
   /** Present when the run was skipped (e.g. 'concurrent_run') */
   skippedReason?: string;
 }
@@ -565,12 +571,25 @@ export interface DiagnosticInput {
   baseUrl?: string;
   customProtocol?: AppConfig['customProtocol'];
   model?: string;
+  verificationLevel?: DiagnosticVerificationLevel;
 }
 
 export interface LocalServiceInfo {
   type: 'ollama';
   baseUrl: string;
   models?: string[];
+}
+
+export type LocalOllamaDiscoveryStatus =
+  | 'unavailable'
+  | 'service_available'
+  | 'models_available';
+
+export interface LocalOllamaDiscoveryResult {
+  available: boolean;
+  baseUrl: string;
+  models?: string[];
+  status: LocalOllamaDiscoveryStatus;
 }
 
 // MCP types

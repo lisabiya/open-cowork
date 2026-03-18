@@ -17,7 +17,6 @@ import { isLoopbackBaseUrl } from '../../shared/network/loopback';
 import {
   DEFAULT_OLLAMA_BASE_URL,
   normalizeOllamaBaseUrl,
-  shouldAutoDiscoverLocalOllamaBaseUrl,
 } from '../../shared/ollama-base-url';
 import { API_PROVIDER_PRESETS, getModelInputGuidance } from '../../shared/api-model-presets';
 import {
@@ -193,11 +192,11 @@ function defaultProfileForKey(
   presets: ProviderPresets
 ): UIProviderProfile {
   const preset = modelPresetForProfile(profileKey, presets);
-  const prefersCustomInput = profileKey.startsWith('custom:') || profileKey === 'ollama';
+  const prefersCustomInput = profileKey.startsWith('custom:');
   return {
     apiKey: '',
     baseUrl: preset.baseUrl,
-    model: preset.models[0]?.id || '',
+    model: profileKey === 'ollama' ? '' : (preset.models[0]?.id || ''),
     customModel: '',
     useCustomModel: prefersCustomInput,
     contextWindow: '',
@@ -625,9 +624,6 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     baseUrl: '',
     provider: 'openrouter',
   });
-  const autoDiscoveryAttemptedRef = useRef<Set<string>>(new Set());
-  const autoDiscoveryRetryCountRef = useRef<number>(0);
-  const autoDiscoveryRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ollamaDiscoverRequestIdRef = useRef(0);
 
   const clearError = useCallback(() => {
@@ -678,9 +674,11 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const currentPreset = modelPreset;
   const hasDiscoveredOllamaModels =
     provider === 'ollama' && Object.prototype.hasOwnProperty.call(discoveredModels, activeProfileKey);
-  const modelOptions = hasDiscoveredOllamaModels
+  const modelOptions = provider === 'ollama'
     ? (discoveredModels[activeProfileKey] || [])
-    : modelPreset.models;
+    : hasDiscoveredOllamaModels
+      ? (discoveredModels[activeProfileKey] || [])
+      : modelPreset.models;
   const modelInputGuidance = getModelInputGuidance(provider, customProtocol);
 
   const currentConfigSet = useMemo(
@@ -700,6 +698,11 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const model = currentProfile.model;
   const customModel = currentProfile.customModel;
   const useCustomModel = currentProfile.useCustomModel;
+  const shouldShowOllamaManualModelToggle =
+    provider !== 'ollama'
+      || useCustomModel
+      || Boolean(error)
+      || modelOptions.length === 0;
   const contextWindow = currentProfile.contextWindow;
   const maxTokens = currentProfile.maxTokens;
   const detectedProviderSetup = useMemo(
@@ -1092,7 +1095,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     });
 
     // If the current model came from discovered models and is not in presets,
-    // reset to the first preset model to keep the dropdown in sync
+    // reset to an endpoint-selected model once discovery runs again.
     const preset = modelPresetForProfile(activeProfileKey, presets);
     setProfiles((prevProfiles) => {
       const current = prevProfiles[activeProfileKey];
@@ -1103,7 +1106,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
             ...prevProfiles,
             [activeProfileKey]: {
               ...current,
-              model: preset.models[0]?.id || '',
+              model: provider === 'ollama' ? '' : (preset.models[0]?.id || ''),
             },
           };
         }
@@ -1176,7 +1179,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     showSuccessKey,
   ]);
 
-  const handleDiagnose = useCallback(async () => {
+  const handleDiagnose = useCallback(async (verificationLevel: 'fast' | 'deep' = 'fast') => {
     if (requiresApiKey && !apiKey.trim()) {
       showErrorKey('api.testError.missing_key');
       return;
@@ -1200,6 +1203,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
         baseUrl: resolvedBaseUrl || undefined,
         customProtocol,
         model: finalModel || undefined,
+        verificationLevel,
       });
       setDiagnosticResult(result);
     } catch (err) {
@@ -1221,6 +1225,10 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     showErrorKey,
     showErrorText,
   ]);
+
+  const handleDeepDiagnose = useCallback(async () => {
+    await handleDiagnose('deep');
+  }, [handleDiagnose]);
 
   const refreshModelOptions = useCallback(async () => {
     if (!isElectron || provider !== 'ollama') {
@@ -1255,15 +1263,26 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
         [requestedProfileKey]: models,
       }));
 
-      const currentModel = useCustomModel ? customModel.trim() : model;
-      if (!currentModel && models[0]) {
-        setModel(models[0].id);
-      } else if (!useCustomModel && currentModel && models.length > 0) {
-        const currentModelInList = models.some((m) => m.id === currentModel);
-        if (!currentModelInList) {
-          setModel(models[0].id);
-        }
-      }
+      setProfiles((prevProfiles) => {
+        const current = prevProfiles[requestedProfileKey]
+          || defaultProfileForKey(requestedProfileKey, presets);
+        const explicitManualModel = current.useCustomModel ? current.customModel.trim() : '';
+        const currentModel = explicitManualModel || current.model.trim();
+        const hasDiscoveredMatch = models.some((item) => item.id === currentModel);
+        const shouldAutoSelectModel =
+          Boolean(models[0]?.id) &&
+          !explicitManualModel &&
+          (!currentModel || !hasDiscoveredMatch);
+
+        return {
+          ...prevProfiles,
+          [requestedProfileKey]: {
+            ...current,
+            model: shouldAutoSelectModel ? models[0]!.id : current.model,
+            useCustomModel: shouldAutoSelectModel ? false : current.useCustomModel,
+          },
+        };
+      });
       return models;
     } catch (refreshError) {
       const latestTarget = latestOllamaTargetRef.current;
@@ -1291,12 +1310,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     activeProfileKey,
     apiKey,
     baseUrl,
-    customModel,
-    model,
+    presets,
     provider,
-    setModel,
     clearError,
-    useCustomModel,
     showErrorKey,
     showErrorText,
   ]);
@@ -1313,19 +1329,22 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
 
       setProfiles((prev) => {
         const current = prev[targetProfileKey] || defaultProfileForKey(targetProfileKey, presets);
-        const currentPresetModel = current.model.trim();
-        const hasPresetMatch = models.some((item) => item.id === currentPresetModel);
         const autoSelectModelId = options?.autoSelectModelId?.trim() || '';
-        const shouldAdoptFirstPresetModel =
-          !current.useCustomModel && Boolean(autoSelectModelId) && (!currentPresetModel || !hasPresetMatch);
+        const explicitManualModel = current.useCustomModel ? current.customModel.trim() : '';
+        const currentModel = explicitManualModel || current.model.trim();
+        const hasDiscoveredMatch = models.some((item) => item.id === currentModel);
+        const shouldAutoSelectModel =
+          Boolean(autoSelectModelId) &&
+          !explicitManualModel &&
+          (!currentModel || !hasDiscoveredMatch);
 
         return {
           ...prev,
           [targetProfileKey]: {
             ...current,
             baseUrl: normalizedBaseUrl,
-            model: shouldAdoptFirstPresetModel ? autoSelectModelId : current.model,
-            useCustomModel: shouldAdoptFirstPresetModel ? false : current.useCustomModel,
+            model: shouldAutoSelectModel ? autoSelectModelId : current.model,
+            useCustomModel: shouldAutoSelectModel ? false : current.useCustomModel,
           },
         };
       });
@@ -1378,19 +1397,12 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
 
         const models = normalizeDiscoveredOllamaModels(result.models);
         applyDiscoveredOllamaState(requestedProfileKey, result.baseUrl, models, {
-          autoSelectModelId: result.status === 'model_usable' ? result.probeModel : undefined,
+          autoSelectModelId: models[0]?.id,
         });
 
         if (!options?.silent) {
           if (result.status === 'service_available') {
             showErrorKey('api.localOllamaNoModels');
-          } else if (result.status === 'model_loading') {
-            showSuccessKey('api.localOllamaModelLoading');
-            setTimeout(() => clearSuccessMessage(), 5000);
-          } else if (result.status === 'model_unusable') {
-            showErrorKey('api.localOllamaModelUnavailable', {
-              model: result.probeModel || models[0]?.id || '',
-            });
           } else {
             showSuccessKey('api.localOllamaDiscovered', { count: models.length });
             setTimeout(() => clearSuccessMessage(), 2500);
@@ -1449,68 +1461,6 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     }, 800);
     return () => clearTimeout(timer);
   }, [provider, baseUrl, refreshModelOptions]);
-
-  useEffect(() => {
-    if (!isElectron || provider !== 'ollama') {
-      return;
-    }
-
-    const normalizedBaseUrl = normalizeOllamaBaseUrl(baseUrl) || DEFAULT_OLLAMA_BASE_URL;
-    if (!shouldAutoDiscoverLocalOllamaBaseUrl(baseUrl) || !isLoopbackBaseUrl(normalizedBaseUrl)) {
-      return;
-    }
-
-    const attemptKey = `${activeProfileKey}:${normalizedBaseUrl}`;
-    if (autoDiscoveryAttemptedRef.current.has(attemptKey)) {
-      return;
-    }
-
-    autoDiscoveryAttemptedRef.current.add(attemptKey);
-    autoDiscoveryRetryCountRef.current = 0;
-
-    const attemptDiscovery = async () => {
-      const result = await discoverLocalOllama({ silent: true });
-      if (result && result.available) {
-        return; // Success, no retry needed
-      }
-      // Schedule retries: 15s then 30s
-      const retryDelays = [15000, 30000];
-      const retryIndex = autoDiscoveryRetryCountRef.current;
-      if (retryIndex < retryDelays.length) {
-        autoDiscoveryRetryCountRef.current = retryIndex + 1;
-        autoDiscoveryRetryTimerRef.current = setTimeout(() => {
-          void attemptDiscovery();
-        }, retryDelays[retryIndex]);
-      }
-    };
-
-    void attemptDiscovery();
-
-    return () => {
-      if (autoDiscoveryRetryTimerRef.current) {
-        clearTimeout(autoDiscoveryRetryTimerRef.current);
-        autoDiscoveryRetryTimerRef.current = null;
-      }
-    };
-  }, [activeProfileKey, baseUrl, discoverLocalOllama, provider]);
-
-  // Periodic re-check: when Ollama provider is selected with no discovered models
-  // and the base URL is loopback, poll every 60s until models are found.
-  useEffect(() => {
-    if (!isElectron || provider !== 'ollama') return;
-
-    const normalizedBaseUrl = normalizeOllamaBaseUrl(baseUrl) || DEFAULT_OLLAMA_BASE_URL;
-    if (!isLoopbackBaseUrl(normalizedBaseUrl)) return;
-
-    const currentModels = discoveredModels[activeProfileKey];
-    if (currentModels && currentModels.length > 0) return;
-
-    const intervalId = setInterval(() => {
-      void discoverLocalOllama({ silent: true });
-    }, 60000);
-
-    return () => clearInterval(intervalId);
-  }, [activeProfileKey, baseUrl, discoverLocalOllama, discoveredModels, provider]);
 
   const handleSave = useCallback(
     async (options?: { silentSuccess?: boolean }) => {
@@ -1877,7 +1827,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     diagnosticResult,
     isDiagnosing,
     handleDiagnose,
+    handleDeepDiagnose,
     isOllamaMode: provider === 'ollama',
+    shouldShowOllamaManualModelToggle,
     requiresApiKey,
     detectedProviderSetup,
     protocolGuidanceText,

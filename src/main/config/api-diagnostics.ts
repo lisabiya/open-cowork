@@ -27,50 +27,17 @@ import type {
   DiagnosticResult,
   DiagnosticStep,
   DiagnosticStepName,
+  DiagnosticVerificationLevel,
+  LocalOllamaDiscoveryResult,
 } from '../../renderer/types';
 import { log, logWarn } from '../utils/logger';
 import { probeWithClaudeSdk } from '../claude/claude-sdk-one-shot';
-import { withRetry } from '../utils/retry';
+import { fetchOllamaModelIndex } from './ollama-api';
 
 const STEP_NAMES: DiagnosticStepName[] = ['dns', 'tcp', 'tls', 'auth', 'model'];
 const TCP_TIMEOUT_MS = 5000;
 const TLS_TIMEOUT_MS = 5000;
 const LOCAL_ANTHROPIC_PLACEHOLDER_KEY = 'sk-ant-local-proxy';
-
-export interface LocalOllamaDiscoveryResult {
-  available: boolean;
-  baseUrl: string;
-  models?: string[];
-  status: 'unavailable' | 'service_available' | 'model_usable' | 'model_unusable' | 'model_loading';
-  probeModel?: string;
-  probeError?: string;
-}
-
-async function probeOllamaModel(baseUrl: string, model: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  try {
-    const probeResponse = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: 'ping' }],
-        max_tokens: 1,
-      }),
-      signal: AbortSignal.timeout(90000),
-    });
-
-    if (!probeResponse.ok) {
-      const probeError = await probeResponse.text();
-      return { ok: false, error: probeError || `HTTP ${probeResponse.status}` };
-    }
-
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -418,6 +385,36 @@ async function stepModel(input: DiagnosticInput, step: DiagnosticStep): Promise<
 
   const start = Date.now();
   try {
+    const verificationLevel: DiagnosticVerificationLevel = input.verificationLevel ?? 'deep';
+    if (input.provider === 'ollama' && verificationLevel === 'fast') {
+      const result = await fetchOllamaModelIndex({
+        baseUrl: input.baseUrl,
+        apiKey: input.apiKey,
+      });
+      const modelId = input.model.trim();
+      const exists = result.models.some((item) => item.id === modelId);
+
+      if (!result.models.length) {
+        step.status = 'fail';
+        step.error = 'No models returned by endpoint';
+        step.fix = 'ollama_no_models_loaded';
+        step.latencyMs = Date.now() - start;
+        return;
+      }
+
+      if (!exists) {
+        step.status = 'fail';
+        step.error = `Model ${modelId} is not in the endpoint model list`;
+        step.fix = `ollama_model_not_listed:${modelId}`;
+        step.latencyMs = Date.now() - start;
+        return;
+      }
+
+      step.status = 'ok';
+      step.latencyMs = Date.now() - start;
+      return;
+    }
+
     const config = configStore.getAll();
     const result = await probeWithClaudeSdk({
       provider: input.provider,
@@ -425,6 +422,7 @@ async function stepModel(input: DiagnosticInput, step: DiagnosticStep): Promise<
       baseUrl: input.baseUrl,
       customProtocol: input.customProtocol,
       model: input.model,
+      verificationLevel,
     }, config);
 
     if (result.ok) {
@@ -432,7 +430,9 @@ async function stepModel(input: DiagnosticInput, step: DiagnosticStep): Promise<
     } else {
       step.status = 'fail';
       step.error = result.details;
-      step.fix = `model_unavailable:${input.model}`;
+      step.fix = result.errorType === 'ollama_loading'
+        ? `ollama_model_loading:${input.model}`
+        : `model_unavailable:${input.model}`;
     }
   } catch (err) {
     step.status = 'fail';
@@ -450,11 +450,13 @@ async function stepModel(input: DiagnosticInput, step: DiagnosticStep): Promise<
 let diagnosticsRunning = false;
 
 export async function runDiagnostics(input: DiagnosticInput): Promise<DiagnosticResult> {
+  const verificationLevel: DiagnosticVerificationLevel = input.verificationLevel ?? 'deep';
   if (diagnosticsRunning) {
     log('[Diagnostics] Skipping — another run is already in progress');
     return {
       steps: STEP_NAMES.map((name) => ({ name, status: 'skip' as const, latencyMs: 0 })),
       overallOk: true,
+      verificationLevel,
       skippedReason: 'concurrent_run',
       failedAt: undefined,
       totalLatencyMs: 0,
@@ -469,12 +471,14 @@ export async function runDiagnostics(input: DiagnosticInput): Promise<Diagnostic
 }
 
 async function runDiagnosticsImpl(input: DiagnosticInput): Promise<DiagnosticResult> {
+  const verificationLevel: DiagnosticVerificationLevel = input.verificationLevel ?? 'deep';
   log('[Diagnostics] Starting', {
     provider: input.provider,
     customProtocol: input.customProtocol,
     hasApiKey: Boolean(input.apiKey?.trim()),
     baseUrl: input.baseUrl || '(default)',
     model: input.model || '(none)',
+    verificationLevel,
   });
 
   const steps: DiagnosticStep[] = STEP_NAMES.map(makeStep);
@@ -544,7 +548,24 @@ async function runDiagnosticsImpl(input: DiagnosticInput): Promise<DiagnosticRes
     overallOk,
     failedAt: failedStep?.name,
     totalLatencyMs,
+    verificationLevel,
   };
+
+  if (overallOk && input.provider === 'ollama' && verificationLevel === 'fast') {
+    result.advisoryCode = 'not_deep_verified';
+    result.advisoryText = 'Endpoint is reachable and the selected model is listed, but no live inference was performed.';
+  }
+
+  if (
+    !overallOk &&
+    input.provider === 'ollama' &&
+    verificationLevel === 'deep' &&
+    failedStep?.name === 'model' &&
+    failedStep.fix?.startsWith('ollama_model_loading:')
+  ) {
+    result.advisoryCode = 'model_loading';
+    result.advisoryText = 'The endpoint is reachable, but the model may still be loading into memory.';
+  }
 
   if (overallOk) {
     log('[Diagnostics] All checks passed', { totalLatencyMs });
@@ -570,83 +591,21 @@ export async function discoverLocalOllama(input?: {
   const baseUrl = preferredBaseUrl && isLoopbackBaseUrl(preferredBaseUrl)
     ? (normalizeOllamaBaseUrl(preferredBaseUrl) || DEFAULT_OLLAMA_BASE_URL)
     : DEFAULT_OLLAMA_BASE_URL;
-  const modelsUrl = `${baseUrl}/models`;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-
-    const response = await fetch(modelsUrl, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      return { available: false, baseUrl, status: 'unavailable' };
-    }
-
-    const body = (await response.json()) as { data?: Array<{ id: string }> };
-    const models = body.data?.map((m) => m.id).filter(Boolean) as string[] | undefined;
+    const result = await fetchOllamaModelIndex({ baseUrl });
+    const models = result.models.map((item) => item.id);
 
     if (!models?.length) {
       log('[Diagnostics] Local Ollama discovered without loaded models');
-      return { available: true, baseUrl, models: [], status: 'service_available' };
+      return { available: true, baseUrl: result.baseUrl, models: [], status: 'service_available' };
     }
 
-    let lastProbeError = '';
-    const probeModel = models[0];
-    try {
-      const probeResult = await withRetry(
-        async () => {
-          const r = await probeOllamaModel(baseUrl, probeModel);
-          if (!r.ok && /timed?\s*out|timeout|abort/i.test(r.error)) {
-            throw new Error(r.error);
-          }
-          return r;
-        },
-        {
-          maxRetries: 2,
-          delayMs: 3000,
-          backoffMultiplier: 2,
-          shouldRetry: (err) => /timed?\s*out|timeout|abort/i.test(err.message),
-        }
-      );
-      if (probeResult.ok) {
-        log('[Diagnostics] Local Ollama discovered', { modelCount: models?.length ?? 0, probeModel });
-        return { available: true, baseUrl, models, status: 'model_usable', probeModel };
-      }
-
-      lastProbeError = probeResult.error;
-      logWarn('[Diagnostics] Local Ollama model probe failed', {
-        model: probeModel,
-        error: probeResult.error.slice(0, 200),
-      });
-    } catch (retryError) {
-      const errMsg = retryError instanceof Error ? retryError.message : String(retryError);
-      if (/timed?\s*out|timeout|abort/i.test(errMsg)) {
-        log('[Diagnostics] Local Ollama model still loading (probe timed out after retries)', { probeModel });
-        return {
-          available: true,
-          baseUrl,
-          models,
-          status: 'model_loading',
-          probeModel,
-          probeError: errMsg,
-        };
-      }
-      lastProbeError = errMsg;
-      logWarn('[Diagnostics] Local Ollama model probe failed after retries', {
-        model: probeModel,
-        error: errMsg.slice(0, 200),
-      });
-    }
-
-    return {
-      available: true,
-      baseUrl,
-      models,
-      status: 'model_unusable',
-      probeModel: models[0],
-      probeError: lastProbeError,
-    };
+    log('[Diagnostics] Local Ollama discovered', {
+      modelCount: models.length,
+      baseUrl: result.baseUrl,
+    });
+    return { available: true, baseUrl: result.baseUrl, models, status: 'models_available' };
   } catch {
     return { available: false, baseUrl, status: 'unavailable' };
   }

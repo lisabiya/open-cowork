@@ -142,9 +142,11 @@
     "refreshModels": "刷新模型",
     "refreshingModels": "刷新中...",
     "refreshModelsFailed": "刷新模型失败，请检查 URL 或服务状态",
+    "manualModel": "手动输入",
+    "useDetectedModels": "使用探测列表",
     "discoverLocalOllama": "发现本地 Ollama",
     "discoveringLocalOllama": "发现中...",
-    "discoverLocalOllamaHint": "扫描本机是否已有运行中的 Ollama，并自动填入本地 URL 与模型列表。",
+    "discoverLocalOllamaHint": "先填写 Ollama 端点，系统会自动拉取模型列表；只有拉取不到时才需要手动输入模型。",
     "localOllamaDiscovered": "已发现本地 Ollama，可用模型 {{count}} 个。",
     "localOllamaNotFound": "未发现本地 Ollama 服务，请先执行 `ollama serve` 后重试。",
     "localOllamaNoModels": "已发现本地 Ollama 服务，但当前没有可用模型。",
@@ -255,6 +257,8 @@
     "configSetKeepOne": "至少需要保留一个配置方案",
     "diagnostic": {
       "runDiagnostics": "诊断连接",
+      "runQuickDiagnostics": "快速诊断",
+      "runDeepDiagnostics": "深度验证推理",
       "running": "诊断中...",
       "step": {
         "dns": "DNS 解析",
@@ -272,6 +276,10 @@
       },
       "overallSuccess": "所有检查通过 ({{ms}}ms)",
       "overallFail": "诊断在 {{step}} 步骤失败",
+      "advisory": {
+        "not_deep_verified": "已验证端点可达且当前模型在端点返回列表中，但尚未执行真实推理。",
+        "model_loading": "端点可达，但模型可能仍在加载到内存中。"
+      },
       "latency": "{{ms}}ms",
       "fix": {
         "dns_resolve_failed": "无法解析域名 {{host}}，请检查 URL 是否正确",
@@ -282,6 +290,9 @@
         "auth_endpoint_not_found": "API 端点不存在，请检查 Base URL 是否正确",
         "auth_request_failed": "认证请求失败，请检查配置",
         "model_unavailable": "模型 {{model}} 不可用，请确认模型名称是否正确",
+        "ollama_no_models_loaded": "端点可访问，但当前没有返回任何可选模型，请先在 Ollama 中拉取模型。",
+        "ollama_model_not_listed": "当前模型 {{model}} 不在端点返回的模型列表中，请从列表重新选择或改用手动输入。",
+        "ollama_model_loading": "模型 {{model}} 可能仍在加载中，稍后再试深度验证。",
         "model_cold_start": "模型可能仍在加载到 GPU/CPU 内存中。大型模型（7B+）首次使用可能需要 30–120 秒，请稍后重试。"
       }
     }

@@ -4,6 +4,7 @@ import {
   listOllamaModels,
   normalizeError,
   REQUEST_TIMEOUT_MS,
+  resetOllamaModelIndexCache,
   testOllamaConnection,
 } from '../src/main/config/ollama-api';
 
@@ -11,6 +12,7 @@ describe('ollama api helpers', () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
+    resetOllamaModelIndexCache();
     global.fetch = vi.fn();
   });
 

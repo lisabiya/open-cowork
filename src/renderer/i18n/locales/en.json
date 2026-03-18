@@ -142,9 +142,11 @@
     "refreshModels": "Refresh Models",
     "refreshingModels": "Refreshing...",
     "refreshModelsFailed": "Failed to refresh models. Check the URL or service status.",
+    "manualModel": "Manual Model",
+    "useDetectedModels": "Use Detected Models",
     "discoverLocalOllama": "Find Local Ollama",
     "discoveringLocalOllama": "Finding...",
-    "discoverLocalOllamaHint": "Scan your local machine for a running Ollama service and fill in the local URL and models.",
+    "discoverLocalOllamaHint": "Enter your Ollama endpoint first. Models will be fetched automatically, and manual entry is only needed if discovery fails.",
     "localOllamaDiscovered": "Found local Ollama with {{count}} available model(s).",
     "localOllamaNotFound": "No local Ollama service was found. Start it with `ollama serve` and try again.",
     "localOllamaNoModels": "Found a local Ollama service, but it does not currently expose any models.",
@@ -255,6 +257,8 @@
     "configSetKeepOne": "Keep at least one config set",
     "diagnostic": {
       "runDiagnostics": "Diagnose Connection",
+      "runQuickDiagnostics": "Quick Diagnose",
+      "runDeepDiagnostics": "Deep Inference Check",
       "running": "Diagnosing...",
       "step": {
         "dns": "DNS Resolution",
@@ -272,6 +276,10 @@
       },
       "overallSuccess": "All checks passed ({{ms}}ms)",
       "overallFail": "Diagnosis failed at {{step}}",
+      "advisory": {
+        "not_deep_verified": "The endpoint is reachable and the selected model is listed, but no live inference was performed yet.",
+        "model_loading": "The endpoint is reachable, but the model may still be loading into memory."
+      },
       "latency": "{{ms}}ms",
       "fix": {
         "dns_resolve_failed": "Cannot resolve hostname {{host}}. Please check if the URL is correct.",
@@ -282,6 +290,9 @@
         "auth_endpoint_not_found": "API endpoint not found. Please check if the Base URL is correct.",
         "auth_request_failed": "Authentication request failed. Please check your configuration.",
         "model_unavailable": "Model {{model}} is not available. Please verify the model name.",
+        "ollama_no_models_loaded": "The endpoint is reachable, but it did not return any models. Pull a model in Ollama first.",
+        "ollama_model_not_listed": "Model {{model}} is not in the endpoint model list. Pick a detected model or switch to manual entry.",
+        "ollama_model_loading": "Model {{model}} may still be loading. Try the deep check again in a moment.",
         "model_cold_start": "The model may still be loading into GPU/CPU memory. Large models (7B+) can take 30–120 seconds on first use. Try again shortly."
       }
     }

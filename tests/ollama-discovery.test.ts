@@ -35,11 +35,13 @@ vi.mock('../src/main/utils/retry.ts', () => ({
 }));
 
 import { discoverLocalOllama } from '../src/main/config/api-diagnostics';
+import { resetOllamaModelIndexCache } from '../src/main/config/ollama-api';
 
 describe('discoverLocalOllama', () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
+    resetOllamaModelIndexCache();
     global.fetch = vi.fn();
   });
 
@@ -67,90 +69,63 @@ describe('discoverLocalOllama', () => {
     expect(result.models).toEqual([]);
   });
 
-  it('returns model_usable when probe succeeds', async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: [{ id: 'qwen3.5:0.8b' }] }), { status: 200 })
-      )
-      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+  it('returns models_available when the endpoint exposes models', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: [{ id: 'qwen3.5:0.8b' }] }), { status: 200 })
+    );
 
     const result = await discoverLocalOllama();
     expect(result.available).toBe(true);
-    expect(result.status).toBe('model_usable');
-    expect(result.probeModel).toBe('qwen3.5:0.8b');
+    expect(result.status).toBe('models_available');
+    expect(result.models).toEqual(['qwen3.5:0.8b']);
   });
 
-  it('returns model_loading when probe times out after retries', async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: [{ id: 'qwen3.5:9b' }] }), { status: 200 })
-      )
-      // All probe attempts throw timeout errors
-      .mockRejectedValue(new Error('The operation timed out'));
+  it('does not treat model loading as part of discovery anymore', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: [{ id: 'qwen3.5:9b' }] }), { status: 200 })
+    );
 
     const result = await discoverLocalOllama();
     expect(result.available).toBe(true);
-    expect(result.status).toBe('model_loading');
-    expect(result.probeModel).toBe('qwen3.5:9b');
-    expect(result.probeError).toMatch(/timed out/i);
+    expect(result.status).toBe('models_available');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('returns model_unusable when probe returns HTTP error (non-timeout)', async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: [{ id: 'qwen3.5:0.8b' }] }), { status: 200 })
-      )
-      .mockResolvedValueOnce(new Response('internal error', { status: 500 }));
+  it('does not perform a second live request when models are listed', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: [{ id: 'qwen3.5:0.8b' }] }), { status: 200 })
+    );
 
     const result = await discoverLocalOllama();
     expect(result.available).toBe(true);
-    expect(result.status).toBe('model_unusable');
+    expect(result.status).toBe('models_available');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('only probes the first model (not all models)', async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'model-a' }, { id: 'model-b' }, { id: 'model-c' }],
-          }),
-          { status: 200 }
-        )
+  it('returns every discovered model from the endpoint response', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: 'model-a' }, { id: 'model-b' }, { id: 'model-c' }],
+        }),
+        { status: 200 }
       )
-      .mockResolvedValueOnce(new Response('model not ready', { status: 500 }));
+    );
 
     const result = await discoverLocalOllama();
     expect(result.available).toBe(true);
-    expect(result.status).toBe('model_unusable');
-    expect(result.probeModel).toBe('model-a');
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe('models_available');
+    expect(result.models).toEqual(['model-a', 'model-b', 'model-c']);
   });
 
-  it('retries probe on timeout and succeeds on second attempt', async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: [{ id: 'qwen3.5:9b' }] }), { status: 200 })
-      )
-      // First probe: timeout
-      .mockRejectedValueOnce(new Error('The operation timed out'))
-      // Second probe (retry): success
-      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+  it('uses a single lightweight models request for discovery', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: [{ id: 'test-model' }] }), { status: 200 })
+    );
 
     const result = await discoverLocalOllama();
     expect(result.available).toBe(true);
-    expect(result.status).toBe('model_usable');
-    expect(result.probeModel).toBe('qwen3.5:9b');
-  });
-
-  it('uses 8s discovery timeout', async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: [{ id: 'test-model' }] }), { status: 200 })
-      )
-      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
-
-    const result = await discoverLocalOllama();
-    expect(result.available).toBe(true);
-    expect(result.status).toBe('model_usable');
+    expect(result.status).toBe('models_available');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });

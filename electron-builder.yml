@@ -47,6 +47,8 @@ files:
   - "!**/tsconfig.json"
 
 # MCP servers (compiled JavaScript files, cross-platform)
+# NOTE: Platform-specific extraResources OVERRIDE this global section,
+# so dist-mcp must also be listed in each platform's extraResources.
 extraResources:
   - from: dist-mcp
     to: mcp
@@ -73,6 +75,8 @@ win:
   artifactName: ${productName}-${version}-win-${arch}.${ext}
   signAndEditExecutable: false
   extraResources:
+    - from: dist-mcp
+      to: mcp
     - from: resources/node/win32-x64
       to: node
     - from: dist-wsl-agent
@@ -93,6 +97,8 @@ mac:
   extendInfo:
     LSApplicationCategoryType: public.app-category.developer-tools
   extraResources:
+    - from: dist-mcp
+      to: mcp
     - from: resources/node/darwin-${arch}
       to: node
     # Bundled Python runtime + site-packages for GUI automation helpers (Pillow, pyobjc/Quartz)
@@ -112,6 +118,8 @@ linux:
         - x64
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
   extraResources:
+    - from: dist-mcp
+      to: mcp
     - from: resources/node/linux-x64
       to: node
     - from: resources/python/linux-${arch}

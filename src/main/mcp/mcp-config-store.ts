@@ -1,5 +1,6 @@
-import Store from 'electron-store';
+import Store, { type Options as StoreOptions } from 'electron-store';
 import { app } from 'electron';
+import * as fs from 'fs';
 import path from 'path';
 import type { MCPServerConfig } from './mcp-manager';
 import { log, logError } from '../utils/logger';
@@ -63,7 +64,7 @@ class MCPConfigStore {
   private store: Store<{ servers: MCPServerConfig[] }>;
 
   constructor() {
-    const storeOptions: any = {
+    const storeOptions: StoreOptions<{ servers: MCPServerConfig[] }> & { projectName?: string } = {
       name: 'mcp-config',
       projectName: 'open-cowork',
       defaults: {
@@ -139,8 +140,7 @@ class MCPConfigStore {
    * Get the path to a MCP server file in the mcp directory
    */
   private getMcpServerPath(filename: string): string {
-    const fs = require('fs');
-    
+
     // In development: __dirname points to dist-electron/main
     // In production: appPath points to the app.asar or unpacked app
     if (app.isPackaged) {

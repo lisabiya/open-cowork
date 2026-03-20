@@ -1,4 +1,4 @@
-import Store from 'electron-store';
+import Store, { type Options as StoreOptions } from 'electron-store';
 import * as crypto from 'crypto';
 import { log, logWarn } from '../utils/logger';
 import { getLegacyDerivedKeyBuffers, getStableDerivedKeyBuffer } from '../utils/store-encryption';
@@ -35,7 +35,7 @@ class CredentialsStore {
   private legacyKeyStore: Store<{ key?: string }>;
 
   constructor() {
-    const storeOptions: any = {
+    const storeOptions: StoreOptions<{ credentials: StoredCredential[] }> & { projectName?: string } = {
       name: 'credentials',
       projectName: 'open-cowork',
       defaults: {

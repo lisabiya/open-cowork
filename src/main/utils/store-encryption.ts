@@ -7,7 +7,7 @@ import Store, { type Options as StoreOptions } from 'electron-store';
 
 type Logger = (...args: unknown[]) => void;
 
-interface EncryptedStoreRotationOptions<T extends Record<string, any>> {
+interface EncryptedStoreRotationOptions<T extends Record<string, unknown>> {
   stableKey: string;
   legacyKeys: string[];
   storeOptions: StoreOptions<T> & { projectName?: string };
@@ -58,7 +58,7 @@ function buildBackupPath(storePath: string, reason: string = 'pre-key-rotation')
   return `${storePath}.${reason}-${timestamp}.bak`;
 }
 
-function resolveStoreName<T extends Record<string, any>>(
+function resolveStoreName<T extends Record<string, unknown>>(
   storeOptions: StoreOptions<T>
 ): string {
   return typeof storeOptions.name === 'string' && storeOptions.name.trim()
@@ -66,7 +66,7 @@ function resolveStoreName<T extends Record<string, any>>(
     : 'config';
 }
 
-function resolveStorePath<T extends Record<string, any>>(
+function resolveStorePath<T extends Record<string, unknown>>(
   storeOptions: StoreOptions<T> & { projectName?: string }
 ): string | null {
   const name = resolveStoreName(storeOptions);
@@ -119,7 +119,7 @@ export function getLegacyDerivedKeyBuffers(options: KeyMaterialOptions): Buffer[
   );
 }
 
-export function createEncryptedStoreWithKeyRotation<T extends Record<string, any>>(
+export function createEncryptedStoreWithKeyRotation<T extends Record<string, unknown>>(
   options: EncryptedStoreRotationOptions<T>
 ): Store<T> {
   const stableKey = options.stableKey;

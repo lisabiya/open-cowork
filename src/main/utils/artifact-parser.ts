@@ -28,12 +28,13 @@ export function extractArtifactsFromText(text: string): ArtifactParseResult {
         if (!item || typeof item !== 'object') {
           continue;
         }
-        const path = typeof (item as any).path === 'string' ? (item as any).path : '';
+        const record = item as Record<string, unknown>;
+        const path = typeof record.path === 'string' ? record.path : '';
         if (!path) {
           continue;
         }
-        const name = typeof (item as any).name === 'string' ? (item as any).name : undefined;
-        const type = typeof (item as any).type === 'string' ? (item as any).type : undefined;
+        const name = typeof record.name === 'string' ? record.name : undefined;
+        const type = typeof record.type === 'string' ? record.type : undefined;
         artifacts.push({ path, name, type });
       }
     } catch {

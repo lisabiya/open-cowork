@@ -11,7 +11,7 @@
  *
  * Dependencies: electron-store, auth-utils, api-model-presets
  */
-import Store from 'electron-store';
+import Store, { type Options as StoreOptions } from 'electron-store';
 import { log, logWarn } from '../utils/logger';
 import {
   createEncryptedStoreWithKeyRotation,
@@ -241,7 +241,7 @@ export async function getPiAiModelPresets(): Promise<typeof PROVIDER_PRESETS> {
       const preset = PROVIDER_PRESETS[providerKey as keyof typeof PROVIDER_PRESETS];
       if (!preset) continue;
 
-      const registryModels = getModels(curated.piProvider as any);
+      const registryModels = getModels(curated.piProvider);
       if (!registryModels || registryModels.length === 0) continue;
 
       const registryIds = new Set(registryModels.map(m => m.id));
@@ -365,7 +365,7 @@ export class ConfigStore {
   private store: Store<AppConfig>;
 
   constructor() {
-    const storeOptions: any = {
+    const storeOptions: StoreOptions<AppConfig> & { projectName?: string } = {
       name: 'config',
       projectName: 'open-cowork',
       defaults: defaultConfig,

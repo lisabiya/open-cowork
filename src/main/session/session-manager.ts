@@ -537,7 +537,7 @@ export class SessionManager {
     const traceId = generateTraceId();
     return runWithLogContext({ sessionId: session.id, traceId }, async () => {
     logCtx('[SessionManager] Processing prompt for session:', session.id, 'traceId:', traceId);
-    logCtx('[SessionManager] Received content:', content ? JSON.stringify(content.map((c: any) => ({ type: c.type, hasData: !!c.source?.data }))) : 'none');
+    logCtx('[SessionManager] Received content:', content ? JSON.stringify(content.map((c) => ({ type: c.type, hasData: !!(c as { source?: { data?: unknown } }).source?.data }))) : 'none');
 
     // Ensure sandbox is initialized for this workspace
     await this.ensureSandboxInitialized(session);
@@ -551,7 +551,7 @@ export class SessionManager {
       // Process file attachments - copy to .tmp directory
       messageContent = await this.processFileAttachments(session, messageContent);
 
-      logCtx('[SessionManager] Final message content types:', messageContent.map((c: any) => c.type));
+      logCtx('[SessionManager] Final message content types:', messageContent.map((c) => c.type));
 
       // Build enhanced prompt with file information
       let enhancedPrompt = prompt;

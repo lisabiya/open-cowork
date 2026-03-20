@@ -17,8 +17,8 @@ function shortenPath(p: string): string {
 }
 
 /** getToolLabel — mirrors MessageCard.tsx */
-function getToolLabel(name: string, input: any): string {
-  const inp = input || {};
+function getToolLabel(name: string, input: unknown): string {
+  const inp = (input as Record<string, unknown>) || {};
   if (name.startsWith('mcp__')) {
     const match = name.match(/^mcp__(.+?)__(.+)$/);
     return match?.[2] || name;

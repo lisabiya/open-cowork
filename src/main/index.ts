@@ -655,7 +655,7 @@ async function startSandboxBootstrap(): Promise<void> {
 
 // 发送事件到渲染进程（含远程会话拦截）
 function sendToRenderer(event: ServerEvent) {
-  const payload = 'payload' in event ? (event.payload as { sessionId?: string; [key: string]: any }) : undefined;
+  const payload = 'payload' in event ? (event.payload as { sessionId?: string; [key: string]: unknown }) : undefined;
   const sessionId = payload?.sessionId;
 
   // 判断是否远程会话
@@ -671,8 +671,8 @@ function sendToRenderer(event: ServerEvent) {
       if (message?.role === 'assistant' && message?.content) {
         // 提取助手文本内容
         const textContent = message.content
-          .filter((c: any) => c.type === 'text' && c.text)
-          .map((c: any) => c.text)
+          .filter((c) => c.type === 'text' && c.text)
+          .map((c) => c.text)
           .join('\n');
 
         if (textContent) {
@@ -2485,7 +2485,7 @@ ipcMain.handle('schedule.runNow', async (_event, id: string) => {
   return scheduledTaskManager.runNow(id);
 });
 
-ipcMain.handle('logs.write', (_event, level: 'info' | 'warn' | 'error', args: any[]) => {
+ipcMain.handle('logs.write', (_event, level: 'info' | 'warn' | 'error', args: unknown[]) => {
   try {
     if (level === 'warn') {
       logWarn(...args);

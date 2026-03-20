@@ -728,9 +728,9 @@ function sendToRenderer(event: ServerEvent) {
       remoteManager
         .handlePermissionRequest(
           sessionId,
-          payload.toolUseId,
-          payload.toolName,
-          payload.input || {}
+          payload.toolUseId as string,
+          payload.toolName as string,
+          (payload.input as Record<string, unknown> | undefined) ?? {}
         )
         .then((result) => {
           if (result !== null && sessionManager) {
@@ -740,7 +740,7 @@ function sendToRenderer(event: ServerEvent) {
             } else {
               permissionResult = 'deny';
             }
-            sessionManager.handlePermissionResponse(payload.toolUseId!, permissionResult);
+            sessionManager.handlePermissionResponse(payload.toolUseId as string, permissionResult);
           }
         })
         .catch((err) => {

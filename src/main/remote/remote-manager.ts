@@ -420,7 +420,6 @@ export class RemoteManager extends EventEmitter {
     // Build question message for Feishu
     let messageText = '🤔 **需要你的回答**\n\n';
     
-    // @ts-expect-error - qIdx not used in this loop but kept for consistency
     questions.forEach((q, _qIdx) => {
       if (q.header) {
         messageText += `**${q.header}**\n`;

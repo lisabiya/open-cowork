@@ -477,7 +477,7 @@ export class FeishuChannel extends ChannelBase {
       case 'markdown':
         // Feishu doesn't support native markdown, convert to interactive card
         msgType = 'interactive';
-        msgContent = this.markdownToCard(content.markdown);
+        msgContent = this.markdownToCard(content.markdown ?? '');
         break;
         
       case 'image':
@@ -496,7 +496,7 @@ export class FeishuChannel extends ChannelBase {
         
       case 'card':
         msgType = 'interactive';
-        msgContent = content.card;
+        msgContent = content.card as Record<string, unknown>;
         break;
         
       default:

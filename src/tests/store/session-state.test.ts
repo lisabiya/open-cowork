@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAppStore } from '../../renderer/store';
-import type { SessionState, SessionExecutionClock } from '../../renderer/store';
+import type { MountedPath } from '../../renderer/types';
 
 // Reset store before each test
 beforeEach(() => {
@@ -15,7 +15,7 @@ describe('SessionState unified store', () => {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     cwd: '/tmp',
-    mountedPaths: [] as string[],
+    mountedPaths: [] as MountedPath[],
     allowedTools: [] as string[],
     memoryEnabled: false,
   });
@@ -295,7 +295,7 @@ describe('SessionState unified store', () => {
   describe('trace steps', () => {
     it('should add and update trace steps', () => {
       useAppStore.getState().addSession(makeSession('s1'));
-      const step = { id: 'ts1', type: 'tool_call' as const, status: 'running' as const, toolName: 'read', timestamp: Date.now() };
+      const step = { id: 'ts1', type: 'tool_call' as const, status: 'running' as const, title: 'read', toolName: 'read', timestamp: Date.now() };
       useAppStore.getState().addTraceStep('s1', step);
       expect(useAppStore.getState().sessionStates['s1'].traceSteps).toHaveLength(1);
 
@@ -306,8 +306,8 @@ describe('SessionState unified store', () => {
     it('should set trace steps (bulk replace)', () => {
       useAppStore.getState().addSession(makeSession('s1'));
       const steps = [
-        { id: 'ts1', type: 'tool_call' as const, status: 'completed' as const, toolName: 'read', timestamp: 1 },
-        { id: 'ts2', type: 'thinking' as const, status: 'completed' as const, timestamp: 2 },
+        { id: 'ts1', type: 'tool_call' as const, status: 'completed' as const, title: 'read', toolName: 'read', timestamp: 1 },
+        { id: 'ts2', type: 'thinking' as const, status: 'completed' as const, title: 'thinking', timestamp: 2 },
       ];
       useAppStore.getState().setTraceSteps('s1', steps);
       expect(useAppStore.getState().sessionStates['s1'].traceSteps).toHaveLength(2);

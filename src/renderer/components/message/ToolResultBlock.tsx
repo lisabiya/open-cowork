@@ -3,8 +3,7 @@ import { useState, memo } from 'react';
 import { ChevronDown, ChevronRight, XCircle, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { shouldUseScreenshotSummary } from '../../utils/tool-result-summary';
-import type { ToolResultContent, ContentBlock, ToolUseContent } from '../../../types';
-import type { Message } from '../../types';
+import type { ToolResultContent, ContentBlock, ToolUseContent, Message } from '../../types';
 
 interface ToolResultBlockProps {
   block: ToolResultContent;
@@ -17,13 +16,16 @@ export const ToolResultBlock = memo(function ToolResultBlock({
   allBlocks,
   message,
 }: ToolResultBlockProps) {
-  const traceStepsBySession = useAppStore((s) => s.traceStepsBySession);
-  const messagesBySession = useAppStore((s) => s.messagesBySession);
+  const traceSteps = useAppStore((s) =>
+    message?.sessionId ? (s.sessionStates[message.sessionId]?.traceSteps ?? []) : []
+  );
+  const allMessages = useAppStore((s) =>
+    message?.sessionId ? (s.sessionStates[message.sessionId]?.messages ?? []) : []
+  );
   const [expanded, setExpanded] = useState(false);
 
   // If a ToolUseBlock in any message already merges this result, hide this block
   if (message?.sessionId) {
-    const allMessages = messagesBySession[message.sessionId] || [];
     for (const msg of allMessages) {
       if (!Array.isArray(msg.content)) continue;
       const hasMatchingToolUse = (msg.content as ContentBlock[]).some(
@@ -36,8 +38,7 @@ export const ToolResultBlock = memo(function ToolResultBlock({
   // Try to find the tool name from trace steps
   let toolName: string | undefined;
   if (message?.sessionId) {
-    const steps = traceStepsBySession[message.sessionId] || [];
-    const toolCallStep = steps.find((s) => s.id === block.toolUseId && s.type === 'tool_call');
+    const toolCallStep = traceSteps.find((s) => s.id === block.toolUseId && s.type === 'tool_call');
     if (toolCallStep) toolName = toolCallStep.toolName;
   }
   if (!toolName) {

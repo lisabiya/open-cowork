@@ -18,7 +18,7 @@ import type {
   ToolUseContent,
   ToolResultContent,
   FileAttachmentContent,
-} from '../../../types';
+} from '../../types';
 import { FileText } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
 import { ThinkingBlock } from './ThinkingBlock';

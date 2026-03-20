@@ -371,7 +371,10 @@ export class ConfigStore {
       defaults: defaultConfig,
     };
 
-    this.store = createEncryptedStoreWithKeyRotation<AppConfig>({
+    // Cast to satisfy the Record<string, unknown> constraint of the encrypted store utility;
+    // AppConfig is a structurally compatible object type at runtime.
+    type AppConfigRecord = AppConfig & Record<string, unknown>;
+    this.store = createEncryptedStoreWithKeyRotation<AppConfigRecord>({
       stableKey: 'open-cowork-config-stable-v1',
       legacyKeys: [
         'open-cowork-config-v1',
@@ -382,11 +385,11 @@ export class ConfigStore {
           salt: 'open-cowork-config-salt',
         }),
       ],
-      storeOptions,
+      storeOptions: storeOptions as StoreOptions<AppConfigRecord> & { projectName?: string },
       logPrefix: '[ConfigStore]',
       log,
       warn: logWarn,
-    });
+    }) as unknown as Store<AppConfig>;
     this.ensureNormalized();
   }
 

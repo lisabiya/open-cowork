@@ -3,8 +3,7 @@ import { useState, memo } from 'react';
 import { ChevronDown, ChevronRight, Loader2, XCircle, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { shouldUseScreenshotSummary } from '../../utils/tool-result-summary';
-import type { ToolUseContent, ToolResultContent, ContentBlock } from '../../../types';
-import type { Message } from '../../types';
+import type { ToolUseContent, ToolResultContent, ContentBlock, Message } from '../../types';
 import { AskUserQuestionBlock } from './AskUserQuestionBlock';
 import { TodoWriteBlock } from './TodoWriteBlock';
 import { getToolIcon, getToolLabel } from './toolHelpers';
@@ -20,9 +19,15 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   allBlocks,
   message,
 }: ToolUseBlockProps) {
-  const traceStepsBySession = useAppStore((s) => s.traceStepsBySession);
-  const messagesBySession = useAppStore((s) => s.messagesBySession);
-  const activeTurnsBySession = useAppStore((s) => s.activeTurnsBySession);
+  const traceSteps = useAppStore((s) =>
+    message?.sessionId ? (s.sessionStates[message.sessionId]?.traceSteps ?? []) : []
+  );
+  const allMessages = useAppStore((s) =>
+    message?.sessionId ? (s.sessionStates[message.sessionId]?.messages ?? []) : []
+  );
+  const activeTurn = useAppStore((s) =>
+    message?.sessionId ? (s.sessionStates[message.sessionId]?.activeTurn ?? null) : null
+  );
   const [expanded, setExpanded] = useState(false);
 
   // Special-case tool UIs
@@ -39,7 +44,6 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   ) as ToolResultContent | undefined;
 
   if (!toolResult && message?.sessionId) {
-    const allMessages = messagesBySession[message.sessionId] || [];
     for (const msg of allMessages) {
       if (!Array.isArray(msg.content)) continue;
       const found = (msg.content as ContentBlock[]).find(
@@ -54,9 +58,7 @@ export const ToolUseBlock = memo(function ToolUseBlock({
 
   // Determine state: running / success / error
   // Only show spinner if session still has an active turn; otherwise treat as done
-  const hasActiveTurn = message?.sessionId
-    ? Boolean(activeTurnsBySession[message.sessionId])
-    : false;
+  const hasActiveTurn = Boolean(activeTurn);
   const isRunning = !toolResult && hasActiveTurn;
   const isError = toolResult?.isError === true;
   const isSuccess = toolResult && !isError;
@@ -83,8 +85,7 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   // Duration from trace steps
   let duration: number | undefined;
   if (message?.sessionId) {
-    const steps = traceStepsBySession[message.sessionId] || [];
-    const resultStep = steps.find((s) => s.id === block.id && s.type === 'tool_result');
+    const resultStep = traceSteps.find((s) => s.id === block.id && s.type === 'tool_result');
     duration = resultStep?.duration;
   }
 

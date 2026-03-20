@@ -10,7 +10,7 @@ import {
   Square,
   CheckSquare,
 } from 'lucide-react';
-import type { ToolUseContent } from '../../../types';
+import type { ToolUseContent } from '../../types';
 import type { TodoItem } from './types';
 
 interface TodoWriteBlockProps {

@@ -61,7 +61,7 @@ export function useIsSessionRunning(): boolean {
 /** Returns the committed messages for the active session. */
 export function useActiveSessionMessages(): Message[] {
   return useAppStore((s) =>
-    s.activeSessionId ? (s.messagesBySession[s.activeSessionId] ?? []) : []
+    s.activeSessionId ? (s.sessionStates[s.activeSessionId]?.messages ?? []) : []
   );
 }
 
@@ -70,20 +70,20 @@ export function useActiveSessionMessages(): Message[] {
  * Useful in list components that render session previews.
  */
 export function useSessionMessages(sessionId: string): Message[] {
-  return useAppStore((s) => s.messagesBySession[sessionId] ?? []);
+  return useAppStore((s) => s.sessionStates[sessionId]?.messages ?? []);
 }
 
 /** Returns the in-progress (streaming) text of the active session's response. */
 export function useActivePartialMessage(): string {
   return useAppStore((s) =>
-    s.activeSessionId ? (s.partialMessagesBySession[s.activeSessionId] ?? '') : ''
+    s.activeSessionId ? (s.sessionStates[s.activeSessionId]?.partialMessage ?? '') : ''
   );
 }
 
 /** Returns the in-progress thinking text for the active session. */
 export function useActivePartialThinking(): string {
   return useAppStore((s) =>
-    s.activeSessionId ? (s.partialThinkingBySession[s.activeSessionId] ?? '') : ''
+    s.activeSessionId ? (s.sessionStates[s.activeSessionId]?.partialThinking ?? '') : ''
   );
 }
 
@@ -95,10 +95,10 @@ export function useActivePartialContent(): { partialMessage: string; partialThin
   return useAppStore(
     useShallow((s) => ({
       partialMessage: s.activeSessionId
-        ? (s.partialMessagesBySession[s.activeSessionId] ?? '')
+        ? (s.sessionStates[s.activeSessionId]?.partialMessage ?? '')
         : '',
       partialThinking: s.activeSessionId
-        ? (s.partialThinkingBySession[s.activeSessionId] ?? '')
+        ? (s.sessionStates[s.activeSessionId]?.partialThinking ?? '')
         : '',
     }))
   );
@@ -111,14 +111,14 @@ export function useActivePartialContent(): { partialMessage: string; partialThin
 /** Returns the active turn info for the current session (or null). */
 export function useActiveTurn(): { stepId: string; userMessageId: string } | null {
   return useAppStore((s) =>
-    s.activeSessionId ? (s.activeTurnsBySession[s.activeSessionId] ?? null) : null
+    s.activeSessionId ? (s.sessionStates[s.activeSessionId]?.activeTurn ?? null) : null
   );
 }
 
 /** Returns the list of pending turn message IDs for the active session. */
 export function usePendingTurns(): string[] {
   return useAppStore((s) =>
-    s.activeSessionId ? (s.pendingTurnsBySession[s.activeSessionId] ?? []) : []
+    s.activeSessionId ? (s.sessionStates[s.activeSessionId]?.pendingTurns ?? []) : []
   );
 }
 
@@ -137,9 +137,9 @@ export function useActiveSessionExecution(): {
       const id = s.activeSessionId;
       const session = id ? s.sessions.find((sess) => sess.id === id) : undefined;
       const isRunning = session?.status === 'running';
-      const activeTurn = id ? (s.activeTurnsBySession[id] ?? null) : null;
+      const activeTurn = id ? (s.sessionStates[id]?.activeTurn ?? null) : null;
       const hasActiveTurn = Boolean(activeTurn);
-      const pendingCount = id ? (s.pendingTurnsBySession[id] ?? []).length : 0;
+      const pendingCount = id ? (s.sessionStates[id]?.pendingTurns ?? []).length : 0;
       return {
         isRunning,
         hasActiveTurn,
@@ -153,7 +153,7 @@ export function useActiveSessionExecution(): {
 /** Returns the execution clock record for the active session. */
 export function useActiveExecutionClock(): SessionExecutionClock | undefined {
   return useAppStore((s) =>
-    s.activeSessionId ? s.executionClockBySession[s.activeSessionId] : undefined
+    s.activeSessionId ? s.sessionStates[s.activeSessionId]?.executionClock : undefined
   );
 }
 
@@ -164,14 +164,14 @@ export function useActiveExecutionClock(): SessionExecutionClock | undefined {
 /** Returns the trace steps for the active session. */
 export function useActiveTraceSteps(): TraceStep[] {
   return useAppStore((s) =>
-    s.activeSessionId ? (s.traceStepsBySession[s.activeSessionId] ?? []) : []
+    s.activeSessionId ? (s.sessionStates[s.activeSessionId]?.traceSteps ?? []) : []
   );
 }
 
 /** Returns the context window size (token count) for the active session. */
 export function useActiveContextWindow(): number | undefined {
   return useAppStore((s) =>
-    s.activeSessionId ? s.contextWindowBySession[s.activeSessionId] : undefined
+    s.activeSessionId ? s.sessionStates[s.activeSessionId]?.contextWindow : undefined
   );
 }
 

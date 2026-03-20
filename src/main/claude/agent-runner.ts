@@ -265,9 +265,11 @@ function buildMcpCustomTools(mcpManager: MCPManager): ToolDefinition[] {
           const result = await mcpManager.callTool(mcpTool.name, params as Record<string, unknown>);
           // MCP callTool returns { content: [...] } — extract text
           const textParts: string[] = [];
-          if (result?.content) {
-            for (const part of result.content) {
-              if (part.type === 'text') textParts.push(part.text);
+          const resultObj = result as Record<string, unknown>;
+          if (resultObj?.content) {
+            const contentArr = resultObj.content as Array<Record<string, unknown>>;
+            for (const part of contentArr) {
+              if (part.type === 'text') textParts.push(String(part.text));
               else textParts.push(JSON.stringify(part));
             }
           } else {

@@ -1,8 +1,7 @@
 // AskUserQuestion tool block — read-only display for historical messages
 import { useTranslation } from 'react-i18next';
 import { HelpCircle } from 'lucide-react';
-import type { ToolUseContent } from '../../../types';
-import type { QuestionItem } from '../../types';
+import type { ToolUseContent, QuestionItem } from '../../types';
 
 interface AskUserQuestionBlockProps {
   block: ToolUseContent;

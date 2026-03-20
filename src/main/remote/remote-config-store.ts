@@ -25,7 +25,10 @@ class RemoteConfigStore {
   private store: Store<RemoteConfig & { pairedUsers: PairedUser[] }>;
 
   constructor() {
-    this.store = createEncryptedStoreWithKeyRotation<RemoteConfig & { pairedUsers: PairedUser[] }>({
+    // Cast to satisfy the Record<string, unknown> constraint of the encrypted store utility;
+    // RemoteConfig & { pairedUsers: PairedUser[] } is structurally compatible at runtime.
+    type RemoteConfigRecord = RemoteConfig & { pairedUsers: PairedUser[] } & Record<string, unknown>;
+    this.store = createEncryptedStoreWithKeyRotation<RemoteConfigRecord>({
       stableKey: 'open-cowork-remote-stable-v1',
       legacyKeys: [
         'open-cowork-remote-v1',
@@ -47,7 +50,7 @@ class RemoteConfigStore {
       logPrefix: '[RemoteConfigStore]',
       log,
       warn: logWarn,
-    });
+    }) as unknown as Store<RemoteConfig & { pairedUsers: PairedUser[] }>;
     
     // Migrate: change pairing mode to allowlist (allow everyone by default)
     this.migrateAuthMode();

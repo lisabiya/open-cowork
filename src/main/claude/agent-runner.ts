@@ -253,7 +253,7 @@ function buildMcpCustomTools(mcpManager: MCPManager): ToolDefinition[] {
   const mcpTools = mcpManager.getTools();
   return mcpTools.map((mcpTool) => {
     // Wrap the raw JSON Schema inputSchema as a TypeBox TSchema
-    const parameters = Type.Unsafe<Record<string, any>>(mcpTool.inputSchema as any);
+    const parameters = Type.Unsafe<Record<string, unknown>>(mcpTool.inputSchema as Record<string, unknown>);
 
     const toolDef: ToolDefinition<TSchema, unknown> = {
       name: mcpTool.name,
@@ -262,7 +262,7 @@ function buildMcpCustomTools(mcpManager: MCPManager): ToolDefinition[] {
       parameters,
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
         try {
-          const result = await mcpManager.callTool(mcpTool.name, params as Record<string, any>);
+          const result = await mcpManager.callTool(mcpTool.name, params as Record<string, unknown>);
           // MCP callTool returns { content: [...] } — extract text
           const textParts: string[] = [];
           if (result?.content) {
@@ -468,7 +468,7 @@ export class ClaudeAgentRunner {
         return lines.join('\n');
       };
 
-      let sections: string[] = [];
+      const sections: string[] = [];
       
       if (emailCredentials.length > 0) {
         sections.push(`**Email Accounts (${emailCredentials.length}):**\n${emailCredentials.map(formatCredential).join('\n\n')}`);
@@ -1169,7 +1169,7 @@ ${hints.join('\n')}
 
       logCtx('[ClaudeAgentRunner] Total messages:', existingMessages.length);
 
-      const hasImages = lastUserMessage?.content.some((c: any) => c.type === 'image') || false;
+      const hasImages = lastUserMessage?.content.some((c) => (c as { type?: string }).type === 'image') || false;
       if (hasImages) {
         log('[ClaudeAgentRunner] User message contains images');
       }
@@ -1409,7 +1409,7 @@ ${hints.join('\n')}
             .flatMap((m) =>
               m.content
                 .filter((c) => c.type === 'text')
-                .map((c) => (c as any).text),
+                .map((c) => (c as { text: string }).text),
             )
             .join('');
           const charsPerToken = estimateCharsPerToken(sampleText);
@@ -1424,7 +1424,7 @@ ${hints.join('\n')}
             const msg = historyMessages[i];
             const textContent = msg.content
               .filter((c) => c.type === 'text')
-              .map((c) => (c as any).text)
+              .map((c) => (c as { text: string }).text)
               .join('\n');
             const roleTag = msg.role === 'user' ? 'user' : 'assistant';
             const entry = `<turn role="${roleTag}">${textContent}</turn>`;
@@ -1508,7 +1508,7 @@ ${hints.join('\n')}
                   : (config.command === 'node' && bundledNodePaths ? bundledNodePaths.node : config.command);
 
                 // 使用内置 npx/node 时，将内置 node bin 注入 PATH
-                let serverEnv = { ...config.env };
+                const serverEnv = { ...config.env };
                 if (bundledNodePaths && (config.command === 'npx' || config.command === 'node')) {
                   const nodeBinDir = path.dirname(bundledNodePaths.node);
                   const currentPath = process.env.PATH || '';
@@ -1770,12 +1770,15 @@ Tool routing:
 
         // Ollama: wrap _onPayload to inject num_ctx into every request
         if (provider === 'ollama') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const agent = piSession.agent as any;
-          const originalOnPayload = agent._onPayload;
+          const originalOnPayload = agent._onPayload as
+            | ((payload: Record<string, unknown>, modelArg: unknown) => Promise<Record<string, unknown>>)
+            | undefined;
           const ollamaNumCtx = {
             value: piModel.contextWindow || 128000,
           };
-          agent._onPayload = async (payload: any, modelArg: any) => {
+          agent._onPayload = async (payload: Record<string, unknown>, modelArg: unknown) => {
             let result = originalOnPayload
               ? await originalOnPayload.call(agent, payload, modelArg)
               : payload;
@@ -1971,7 +1974,7 @@ Tool routing:
               );
             }
             const resolvedPayload = resolveMessageEndPayload({
-              message: msg as any,
+              message: msg as Parameters<typeof resolveMessageEndPayload>[0]['message'],
               streamedText,
             });
             streamedText = resolvedPayload.nextStreamedText;
@@ -2039,8 +2042,9 @@ Tool routing:
                   });
                 } else {
                   // Unknown block type — pass through as text so content isn't silently lost
-                  log(`[ClaudeAgentRunner] Unknown content block type: ${(block as any).type}`);
-                  const text = (block as any).text || JSON.stringify(block);
+                  const unknownBlock = block as { type?: string; text?: string };
+                  log(`[ClaudeAgentRunner] Unknown content block type: ${unknownBlock.type}`);
+                  const text = unknownBlock.text || JSON.stringify(block);
                   if (text) contentBlocks.push({ type: 'text', text });
                 }
               }
@@ -2050,13 +2054,14 @@ Tool routing:
                 payload: { sessionId: session.id, delta: '' },
               });
               if (contentBlocks.length > 0) {
-                const tokenUsage = normalizeTokenUsage((msg as any).usage);
-                if ((msg as any).usage) {
+                const msgWithUsage = msg as { usage?: unknown };
+                const tokenUsage = normalizeTokenUsage(msgWithUsage.usage);
+                if (msgWithUsage.usage) {
                   log(
                     '[ClaudeAgentRunner] normalized usage:',
                     safeStringify(
                       {
-                        raw: (msg as any).usage,
+                        raw: msgWithUsage.usage,
                         normalized: tokenUsage,
                       },
                       2
@@ -2273,7 +2278,7 @@ Tool routing:
 
         // Mark so session-manager doesn't report again
         if (error instanceof Error) {
-          (error as any).alreadyReportedToUser = true;
+          (error as Error & { alreadyReportedToUser?: boolean }).alreadyReportedToUser = true;
         }
       }
     } finally {

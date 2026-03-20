@@ -327,7 +327,8 @@ export function resolvePiRegistryModel(
   options: PiModelLookupOptions = {},
 ): Model<Api> | undefined {
   for (const candidate of buildPiModelLookupCandidates(modelString, options)) {
-    const model = (getModel as any)(candidate.provider as PiRegistryProvider, candidate.model) as Model<Api> | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const model = (getModel as (...args: unknown[]) => Model<Api> | undefined)(candidate.provider as PiRegistryProvider, candidate.model);
     if (model) {
       return applyPiModelRuntimeOverrides(model, options);
     }

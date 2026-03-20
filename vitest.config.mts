@@ -9,16 +9,27 @@ export default defineConfig({
     exclude: ['node_modules', 'dist', 'dist-electron', '.claude'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      // text: human-readable table in CI logs; json-summary: machine-readable for badge tools
+      reporter: ['text', 'text-summary', 'json', 'json-summary', 'html'],
       exclude: [
         'node_modules/',
         'dist/',
         'dist-electron/',
         'src/renderer/',
+        'src/tests/',
+        'tests/',
         '**/*.d.ts',
         '**/*.config.*',
         '**/mockData',
       ],
+      // Starting thresholds — intentionally low to avoid blocking CI on day one.
+      // Raise these incrementally as test coverage improves.
+      thresholds: {
+        lines: 10,
+        functions: 10,
+        branches: 10,
+        statements: 10,
+      },
     },
     mockReset: true,
     restoreMocks: true,

@@ -175,6 +175,24 @@ async function downloadAndExtract(platform, arch) {
       }
     }
 
+    // Fix npx: bin/npx requires('../lib/cli.js') but the actual file is at
+    // lib/node_modules/npm/lib/cli.js. Create a redirect shim so npx works
+    // in the bundled Node distribution.
+    const libCliPath = path.join(extractDir, 'lib', 'cli.js');
+    const npmCliPath = path.join(extractDir, 'lib', 'node_modules', 'npm', 'lib', 'cli.js');
+    if (fs.existsSync(npmCliPath) && !fs.existsSync(libCliPath)) {
+      fs.writeFileSync(libCliPath, 'module.exports = require("./node_modules/npm/lib/cli.js");\n');
+      console.log('  Fixed npx: created lib/cli.js redirect');
+    }
+
+    // Also fix npm-cli.js reference from npx
+    const npmCliBinPath = path.join(extractDir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    const binNpmCliPath = path.join(extractDir, 'bin', 'npm-cli.js');
+    if (fs.existsSync(npmCliBinPath) && !fs.existsSync(binNpmCliPath)) {
+      fs.writeFileSync(binNpmCliPath, 'module.exports = require("../lib/node_modules/npm/bin/npm-cli.js");\n');
+      console.log('  Fixed npx: created bin/npm-cli.js redirect');
+    }
+
     console.log(`✓ Extracted: ${platform}-${arch}`);
   } catch (error) {
     console.error(`✗ Failed to download ${platform}-${arch}:`, error?.stack || error);

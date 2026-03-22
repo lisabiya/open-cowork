@@ -25,6 +25,28 @@ const DOWNLOAD_ALL_PLATFORMS = process.env.OPEN_COWORK_DOWNLOAD_ALL_NODE_BINARIE
 const WINDOWS_UNLINK_RETRY_COUNT = 8;
 const WINDOWS_UNLINK_RETRY_DELAY_MS = 500;
 
+/**
+ * Fix npx in bundled Node: bin/npx requires('../lib/cli.js') but the Node
+ * distribution only has lib/node_modules/npm/lib/cli.js. Create redirect
+ * shims so npx-based MCP servers can start correctly.
+ * Safe to call multiple times (idempotent).
+ */
+function applyNpxFix(extractDir) {
+  const libCliPath = path.join(extractDir, 'lib', 'cli.js');
+  const npmCliPath = path.join(extractDir, 'lib', 'node_modules', 'npm', 'lib', 'cli.js');
+  if (fs.existsSync(npmCliPath) && !fs.existsSync(libCliPath)) {
+    fs.writeFileSync(libCliPath, 'module.exports = require("./node_modules/npm/lib/cli.js");\n');
+    console.log('  Fixed npx: created lib/cli.js redirect');
+  }
+
+  const npmCliBinPath = path.join(extractDir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const binNpmCliPath = path.join(extractDir, 'bin', 'npm-cli.js');
+  if (fs.existsSync(npmCliBinPath) && !fs.existsSync(binNpmCliPath)) {
+    fs.writeFileSync(binNpmCliPath, 'module.exports = require("../lib/node_modules/npm/bin/npm-cli.js");\n');
+    console.log('  Fixed npx: created bin/npm-cli.js redirect');
+  }
+}
+
 function download(url, dest) {
   return new Promise((resolve, reject) => {
     console.log(`Downloading: ${url}`);
@@ -105,6 +127,8 @@ async function downloadAndExtract(platform, arch) {
   // Skip if already downloaded
   if (fs.existsSync(extractDir)) {
     console.log(`Already exists: ${extractDir}`);
+    // Still apply npx fix in case it was cached without it
+    applyNpxFix(extractDir);
     return;
   }
 
@@ -175,23 +199,7 @@ async function downloadAndExtract(platform, arch) {
       }
     }
 
-    // Fix npx: bin/npx requires('../lib/cli.js') but the actual file is at
-    // lib/node_modules/npm/lib/cli.js. Create a redirect shim so npx works
-    // in the bundled Node distribution.
-    const libCliPath = path.join(extractDir, 'lib', 'cli.js');
-    const npmCliPath = path.join(extractDir, 'lib', 'node_modules', 'npm', 'lib', 'cli.js');
-    if (fs.existsSync(npmCliPath) && !fs.existsSync(libCliPath)) {
-      fs.writeFileSync(libCliPath, 'module.exports = require("./node_modules/npm/lib/cli.js");\n');
-      console.log('  Fixed npx: created lib/cli.js redirect');
-    }
-
-    // Also fix npm-cli.js reference from npx
-    const npmCliBinPath = path.join(extractDir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
-    const binNpmCliPath = path.join(extractDir, 'bin', 'npm-cli.js');
-    if (fs.existsSync(npmCliBinPath) && !fs.existsSync(binNpmCliPath)) {
-      fs.writeFileSync(binNpmCliPath, 'module.exports = require("../lib/node_modules/npm/bin/npm-cli.js");\n');
-      console.log('  Fixed npx: created bin/npm-cli.js redirect');
-    }
+    applyNpxFix(extractDir);
 
     console.log(`✓ Extracted: ${platform}-${arch}`);
   } catch (error) {

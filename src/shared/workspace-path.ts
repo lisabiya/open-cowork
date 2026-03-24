@@ -45,9 +45,19 @@ function joinRelativePath(basePath: string, relativePath: string): string {
   const parts = normalized.split(sep);
   const resolved: string[] = [];
 
+  // Determine the minimum number of parts that must remain to prevent
+  // traversal above the path root:
+  //   - UNC path  \\server\share  → splits to ['', '', 'server', 'share', …]
+  //                                  floor = 4 (keep both empty + server + share)
+  //   - Windows drive  C:\         → splits to ['C:', …]
+  //                                  floor = 1
+  //   - POSIX absolute /           → splits to ['', …]
+  //                                  floor = 1
+  const floor = isUncPath(basePath) ? 4 : 1;
+
   for (const part of parts) {
     if (part === '.') continue;
-    if (part === '..' && resolved.length > 1) {
+    if (part === '..' && resolved.length > floor) {
       resolved.pop();
     } else {
       resolved.push(part);

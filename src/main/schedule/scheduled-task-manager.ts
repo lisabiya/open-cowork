@@ -15,7 +15,7 @@ import {
   buildScheduledTaskFallbackTitle,
   buildScheduledTaskTitle,
 } from '../../shared/schedule/task-title';
-import { logError } from '../utils/logger';
+import { log, logError } from '../utils/logger';
 
 export type ScheduleRepeatUnit = 'minute' | 'hour' | 'day';
 export type ScheduledTaskWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -113,6 +113,7 @@ export class ScheduledTaskManager {
   private readonly onTaskError?: (taskId: string, error: string) => void;
   private readonly now: () => number;
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  private readonly executingTasks = new Set<string>();
   private running = false;
 
   constructor(options: ScheduledTaskManagerOptions) {
@@ -166,9 +167,10 @@ export class ScheduledTaskManager {
     const normalizedRepeatEvery = normalizedScheduleConfig
       ? null
       : normalizeRepeatEvery(input.repeatEvery);
-    const normalizedRepeatUnit = normalizedScheduleConfig || normalizedRepeatEvery === null
-      ? null
-      : normalizeRepeatUnit(input.repeatUnit);
+    const normalizedRepeatUnit =
+      normalizedScheduleConfig || normalizedRepeatEvery === null
+        ? null
+        : normalizeRepeatUnit(input.repeatUnit);
     const created = this.store.create({
       ...input,
       title: normalizedTitle,
@@ -187,15 +189,18 @@ export class ScheduledTaskManager {
     const current = this.store.get(id);
     if (!current) return null;
     const nextPrompt = updates.prompt === undefined ? current.prompt : updates.prompt.trim();
-    const nextTitle = updates.title === undefined
-      ? current.title
-      : buildScheduledTaskTitle(updates.title || nextPrompt);
-    const nextScheduleConfig = updates.scheduleConfig === undefined
-      ? undefined
-      : normalizeScheduleConfig(updates.scheduleConfig);
-    const usesScheduleConfig = nextScheduleConfig !== undefined
-      ? nextScheduleConfig !== null
-      : current.scheduleConfig !== null;
+    const nextTitle =
+      updates.title === undefined
+        ? current.title
+        : buildScheduledTaskTitle(updates.title || nextPrompt);
+    const nextScheduleConfig =
+      updates.scheduleConfig === undefined
+        ? undefined
+        : normalizeScheduleConfig(updates.scheduleConfig);
+    const usesScheduleConfig =
+      nextScheduleConfig !== undefined
+        ? nextScheduleConfig !== null
+        : current.scheduleConfig !== null;
     const nextRepeatEvery = usesScheduleConfig
       ? null
       : updates.repeatEvery === undefined
@@ -261,6 +266,9 @@ export class ScheduledTaskManager {
     if (task.nextRunAt === null) return;
     const delay = Math.max(0, task.nextRunAt - this.now());
     const effectiveDelay = Math.min(delay, MAX_TIMER_DELAY_MS);
+    if (effectiveDelay < delay) {
+      log('[Scheduler] Delay clamped to max for task:', task.id);
+    }
     const timer = setTimeout(() => {
       this.handleTrigger(task.id);
     }, effectiveDelay);
@@ -276,21 +284,32 @@ export class ScheduledTaskManager {
       this.scheduleTask(task);
       return;
     }
+    if (this.executingTasks.has(taskId)) {
+      return;
+    }
+    this.executingTasks.add(taskId);
     const taskToExecute = this.prepareExecution(task);
-    this.executeAndRecord(taskToExecute).catch((err) => {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      try {
-        this.store.update(taskToExecute.id, {
-          lastRunAt: this.now(),
-          lastRunSessionId: null,
-          lastError: errorMessage,
-        });
-      } catch (updateError) {
-        logError('[ScheduledTaskManager] Failed to update store after unhandled error:', updateError);
-      }
-      this.onTaskError?.(taskToExecute.id, errorMessage);
-      logError(`[ScheduledTask] Unhandled error executing task ${taskToExecute.id}:`, err);
-    });
+    this.executeAndRecord(taskToExecute)
+      .catch((err) => {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        try {
+          this.store.update(taskToExecute.id, {
+            lastRunAt: this.now(),
+            lastRunSessionId: null,
+            lastError: errorMessage,
+          });
+        } catch (updateError) {
+          logError(
+            '[ScheduledTaskManager] Failed to update store after unhandled error:',
+            updateError
+          );
+        }
+        this.onTaskError?.(taskToExecute.id, errorMessage);
+        logError(`[ScheduledTask] Unhandled error executing task ${taskToExecute.id}:`, err);
+      })
+      .finally(() => {
+        this.executingTasks.delete(taskId);
+      });
   }
 
   private prepareExecution(task: ScheduledTask): ScheduledTask {
@@ -314,10 +333,12 @@ export class ScheduledTaskManager {
       }
     }
 
-    return this.store.update(task.id, {
-      enabled: false,
-      nextRunAt: null,
-    }) ?? task;
+    return (
+      this.store.update(task.id, {
+        enabled: false,
+        nextRunAt: null,
+      }) ?? task
+    );
   }
 
   private computeToggleNextRunAt(task: ScheduledTask): number {
@@ -378,7 +399,9 @@ function normalizeRepeatEvery(value: number | null | undefined): number | null {
   return normalized;
 }
 
-function normalizeRepeatUnit(value: ScheduleRepeatUnit | null | undefined): ScheduleRepeatUnit | null {
+function normalizeRepeatUnit(
+  value: ScheduleRepeatUnit | null | undefined
+): ScheduleRepeatUnit | null {
   if (value === 'minute' || value === 'hour' || value === 'day') {
     return value;
   }
@@ -441,9 +464,7 @@ function normalizeScheduleTimes(times: string[]): string[] {
     return [];
   }
   const validTimes = Array.from(
-    new Set(
-      times.filter((time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time))
-    )
+    new Set(times.filter((time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time)))
   );
   return validTimes.sort((left, right) => compareTimeStrings(left, right));
 }
@@ -454,7 +475,9 @@ function normalizeWeekdays(days: number[]): ScheduledTaskWeekday[] {
   }
   const normalized = Array.from(
     new Set(
-      days.filter((day): day is ScheduledTaskWeekday => Number.isInteger(day) && day >= 0 && day <= 6)
+      days.filter(
+        (day): day is ScheduledTaskWeekday => Number.isInteger(day) && day >= 0 && day <= 6
+      )
     )
   );
   return normalized.sort((left, right) => left - right);

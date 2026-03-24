@@ -1,9 +1,4 @@
-const LOOPBACK_HOSTS = new Set([
-  'localhost',
-  '127.0.0.1',
-  '0.0.0.0',
-  '::1',
-]);
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
 function normalizeHostname(hostname: string): string {
   const trimmed = hostname.trim().toLowerCase();

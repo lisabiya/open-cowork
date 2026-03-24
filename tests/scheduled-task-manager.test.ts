@@ -43,10 +43,7 @@ function createDailySchedule(times: string[]): ScheduledTaskScheduleConfig {
   return { kind: 'daily', times };
 }
 
-function createWeeklySchedule(
-  weekdays: number[],
-  times: string[]
-): ScheduledTaskScheduleConfig {
+function createWeeklySchedule(weekdays: number[], times: string[]): ScheduledTaskScheduleConfig {
   return { kind: 'weekly', weekdays, times };
 }
 
@@ -137,7 +134,7 @@ describe('ScheduledTaskManager', () => {
     expect(after?.nextRunAt).toBe(now + 1000 + 5 * 60 * 1000);
   });
 
-  it('allows concurrent runs for same repeating task', async () => {
+  it('prevents concurrent runs for same repeating task', async () => {
     const now = Date.now();
     const store = createStore([
       createTask({
@@ -163,10 +160,13 @@ describe('ScheduledTaskManager', () => {
     const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
     manager.start();
 
+    // First trigger fires at t=1000
     await vi.advanceTimersByTimeAsync(1000);
+    // First execution is still in-flight; second trigger fires at t=61000
     await vi.advanceTimersByTimeAsync(60 * 1000);
 
-    expect(executeTask).toHaveBeenCalledTimes(2);
+    // While the first run is still pending the second trigger must be suppressed
+    expect(executeTask).toHaveBeenCalledTimes(1);
 
     resolveFirst?.();
     await Promise.resolve();
@@ -291,7 +291,7 @@ describe('ScheduledTaskManager', () => {
     await manager.runNow('stale-trigger');
     expect(executeTask).toHaveBeenCalledTimes(1);
 
-    (manager as any).handleTrigger('stale-trigger');
+    (manager as unknown as { handleTrigger(id: string): void }).handleTrigger('stale-trigger');
     expect(executeTask).toHaveBeenCalledTimes(1);
   });
 
@@ -466,8 +466,18 @@ describe('ScheduledTaskManager', () => {
     const now = Date.now();
     const store = createStore([
       createTask({ id: 'disabled', enabled: false, nextRunAt: null, createdAt: now - 1_000 }),
-      createTask({ id: 'enabled-late', enabled: true, nextRunAt: now + 10 * 60 * 1000, createdAt: now - 2_000 }),
-      createTask({ id: 'enabled-soon', enabled: true, nextRunAt: now + 60 * 1000, createdAt: now - 3_000 }),
+      createTask({
+        id: 'enabled-late',
+        enabled: true,
+        nextRunAt: now + 10 * 60 * 1000,
+        createdAt: now - 2_000,
+      }),
+      createTask({
+        id: 'enabled-soon',
+        enabled: true,
+        nextRunAt: now + 60 * 1000,
+        createdAt: now - 3_000,
+      }),
     ]);
     const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-sort' });
     const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
@@ -491,7 +501,9 @@ describe('ScheduledTaskManager', () => {
     const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-toggle-once-overdue' });
     const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
 
-    expect(() => manager.toggle('toggle-once-overdue', true)).toThrow('Cannot enable: one-time task is overdue');
+    expect(() => manager.toggle('toggle-once-overdue', true)).toThrow(
+      'Cannot enable: one-time task is overdue'
+    );
     const after = store.get('toggle-once-overdue');
     expect(after?.enabled).toBe(false);
     expect(after?.nextRunAt).toBeNull();
@@ -550,7 +562,12 @@ describe('ScheduledTaskManager', () => {
     const onTaskError = vi.fn();
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const manager = new ScheduledTaskManager({ store, executeTask, onTaskError, now: () => Date.now() });
+    const manager = new ScheduledTaskManager({
+      store,
+      executeTask,
+      onTaskError,
+      now: () => Date.now(),
+    });
     manager.start();
 
     await vi.advanceTimersByTimeAsync(1000);

@@ -104,14 +104,20 @@ describe('auth-utils', () => {
     expect(isLoopbackBaseUrl('http://127.0.0.1:8082')).toBe(true);
     expect(isLoopbackBaseUrl('http://localhost:8082')).toBe(true);
     expect(isLoopbackBaseUrl('http://[::1]:8082')).toBe(true);
-    expect(isLoopbackBaseUrl('http://0.0.0.0:8082')).toBe(true);
+    expect(isLoopbackBaseUrl('http://0.0.0.0:8082')).toBe(false);
     expect(isLoopbackBaseUrl('https://api.example.com')).toBe(false);
   });
 
   it('normalizes anthropic base urls by removing a trailing /v1 segment', () => {
-    expect(normalizeAnthropicBaseUrl('https://api.duckcoding.ai/v1')).toBe('https://api.duckcoding.ai');
-    expect(normalizeAnthropicBaseUrl('https://proxy.example.com/anthropic/v1/')).toBe('https://proxy.example.com/anthropic');
-    expect(normalizeAnthropicBaseUrl('https://proxy.example.com/anthropic')).toBe('https://proxy.example.com/anthropic');
+    expect(normalizeAnthropicBaseUrl('https://api.duckcoding.ai/v1')).toBe(
+      'https://api.duckcoding.ai'
+    );
+    expect(normalizeAnthropicBaseUrl('https://proxy.example.com/anthropic/v1/')).toBe(
+      'https://proxy.example.com/anthropic'
+    );
+    expect(normalizeAnthropicBaseUrl('https://proxy.example.com/anthropic')).toBe(
+      'https://proxy.example.com/anthropic'
+    );
   });
 
   it('detects official openai base urls', () => {
@@ -251,9 +257,15 @@ describe('auth-utils', () => {
     expect(normalizeOllamaBaseUrl('http://localhost:11434/v1')).toBe('http://localhost:11434/v1');
     expect(normalizeOllamaBaseUrl('http://localhost:11434/api')).toBe('http://localhost:11434/v1');
     expect(normalizeOllamaBaseUrl('https://ollama.com/api')).toBe('https://ollama.com/v1');
-    expect(normalizeOllamaBaseUrl('https://ollama.example.internal/proxy/api')).toBe('https://ollama.example.internal/proxy/v1');
-    expect(normalizeOllamaBaseUrl('https://ollama.example.internal/proxy/api/v1')).toBe('https://ollama.example.internal/proxy/v1');
-    expect(normalizeOllamaBaseUrl('https://ollama.example.internal/proxy')).toBe('https://ollama.example.internal/proxy/v1');
+    expect(normalizeOllamaBaseUrl('https://ollama.example.internal/proxy/api')).toBe(
+      'https://ollama.example.internal/proxy/v1'
+    );
+    expect(normalizeOllamaBaseUrl('https://ollama.example.internal/proxy/api/v1')).toBe(
+      'https://ollama.example.internal/proxy/v1'
+    );
+    expect(normalizeOllamaBaseUrl('https://ollama.example.internal/proxy')).toBe(
+      'https://ollama.example.internal/proxy/v1'
+    );
     expect(normalizeOllamaBaseUrl(undefined)).toBeUndefined();
   });
 

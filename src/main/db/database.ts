@@ -12,7 +12,7 @@ import { log, logError, logWarn } from '../utils/logger';
 export interface DatabaseInstance {
   // Raw database access (for advanced queries)
   raw: Database.Database;
-  
+
   // Session operations
   sessions: {
     create: (session: SessionRow) => void;
@@ -21,7 +21,7 @@ export interface DatabaseInstance {
     getAll: () => SessionRow[];
     delete: (id: string) => void;
   };
-  
+
   // Message operations
   messages: {
     create: (message: MessageRow) => void;
@@ -45,7 +45,7 @@ export interface DatabaseInstance {
     getAll: () => ScheduledTaskRow[];
     delete: (id: string) => void;
   };
-  
+
   // For compatibility with old interface
   prepare: (sql: string) => Database.Statement;
   exec: (sql: string) => void;
@@ -186,7 +186,10 @@ function prepareDatabaseDirectory(userDataPath: string): string {
     moveIfExists(`${dbDir}-shm`, `${recoveredDbPath}-shm`);
     logWarn('[Database] Recovered legacy SQLite file into:', recoveredDbPath);
   } else {
-    logWarn('[Database] Database directory path was occupied by a file, moved to backup:', preservedPath);
+    logWarn(
+      '[Database] Database directory path was occupied by a file, moved to backup:',
+      preservedPath
+    );
   }
 
   return dbDir;
@@ -215,11 +218,11 @@ function getDatabasePath(): string {
  */
 function initializeSchema(database: Database.Database): void {
   try {
-  // Enable WAL mode for better performance
-  database.pragma('journal_mode = WAL');
-  
-  // Create sessions table
-  database.exec(`
+    // Enable WAL mode for better performance
+    database.pragma('journal_mode = WAL');
+
+    // Create sessions table
+    database.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -235,11 +238,11 @@ function initializeSchema(database: Database.Database): void {
     )
   `);
 
-  ensureColumn(database, 'sessions', 'openai_thread_id', 'openai_thread_id TEXT');
-  ensureColumn(database, 'sessions', 'model', 'model TEXT');
-  
-  // Create messages table
-  database.exec(`
+    ensureColumn(database, 'sessions', 'openai_thread_id', 'openai_thread_id TEXT');
+    ensureColumn(database, 'sessions', 'model', 'model TEXT');
+
+    // Create messages table
+    database.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -251,10 +254,10 @@ function initializeSchema(database: Database.Database): void {
     )
   `);
 
-  ensureColumn(database, 'messages', 'execution_time_ms', 'execution_time_ms INTEGER');
+    ensureColumn(database, 'messages', 'execution_time_ms', 'execution_time_ms INTEGER');
 
-  // Create trace steps table
-  database.exec(`
+    // Create trace steps table
+    database.exec(`
     CREATE TABLE IF NOT EXISTS trace_steps (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -271,30 +274,30 @@ function initializeSchema(database: Database.Database): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     )
   `);
-  
-  // Create index for faster message queries
-  database.exec(`
+
+    // Create index for faster message queries
+    database.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_session_id 
     ON messages(session_id)
   `);
-  
-  database.exec(`
+
+    database.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_timestamp 
     ON messages(session_id, timestamp)
   `);
 
-  database.exec(`
+    database.exec(`
     CREATE INDEX IF NOT EXISTS idx_trace_steps_session_id
     ON trace_steps(session_id)
   `);
 
-  database.exec(`
+    database.exec(`
     CREATE INDEX IF NOT EXISTS idx_trace_steps_timestamp
     ON trace_steps(session_id, timestamp)
   `);
-  
-  // Create memory_entries table (for future use)
-  database.exec(`
+
+    // Create memory_entries table (for future use)
+    database.exec(`
     CREATE TABLE IF NOT EXISTS memory_entries (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -304,9 +307,9 @@ function initializeSchema(database: Database.Database): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     )
   `);
-  
-  // Create skills table (for future use)
-  database.exec(`
+
+    // Create skills table (for future use)
+    database.exec(`
     CREATE TABLE IF NOT EXISTS skills (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -318,7 +321,7 @@ function initializeSchema(database: Database.Database): void {
     )
   `);
 
-  database.exec(`
+    database.exec(`
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -337,14 +340,14 @@ function initializeSchema(database: Database.Database): void {
       updated_at INTEGER NOT NULL
     )
   `);
-  ensureColumn(database, 'scheduled_tasks', 'schedule_config', 'schedule_config TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'schedule_config', 'schedule_config TEXT');
 
-  database.exec(`
+    database.exec(`
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run
     ON scheduled_tasks(enabled, next_run_at)
   `);
-  
-  log('[Database] Schema initialized');
+
+    log('[Database] Schema initialized');
   } catch (error) {
     logError('[Database] Schema initialization failed:', error);
     throw error;
@@ -358,6 +361,15 @@ function validateIdentifier(name: string): string {
   return name;
 }
 
+const ALLOWED_COLUMN_TYPES = [
+  'TEXT NOT NULL DEFAULT',
+  'INTEGER DEFAULT',
+  'TEXT',
+  'INTEGER',
+  'REAL',
+  'BLOB',
+] as const;
+
 function ensureColumn(
   database: Database.Database,
   table: string,
@@ -366,12 +378,32 @@ function ensureColumn(
 ): void {
   validateIdentifier(table);
   validateIdentifier(column);
+
+  // Reconstruct definition from validated parts to prevent SQL injection.
+  // The definition format is: "<column> <TYPE_SUFFIX>" — extract the type
+  // suffix that follows the column name and validate it against an allowlist.
+  const prefix = column + ' ';
+  if (!definition.startsWith(prefix)) {
+    throw new Error(`Column definition must start with column name: ${definition}`);
+  }
+  const typeSuffix = definition.slice(prefix.length).trim().toUpperCase();
+  const matchedType = ALLOWED_COLUMN_TYPES.find(
+    (t) => typeSuffix === t || typeSuffix.startsWith(t + ' ')
+  );
+  if (!matchedType) {
+    throw new Error(`Unsupported column type in definition: ${typeSuffix}`);
+  }
+  // Use only the validated column name + original (non-uppercased) suffix so
+  // that default value tokens are preserved exactly as authored.
+  const originalSuffix = definition.slice(prefix.length).trim();
+  const safeDefinition = `${column} ${originalSuffix}`;
+
   const rows = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   const exists = rows.some((row) => row.name === column);
   if (exists) {
     return;
   }
-  database.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  database.exec(`ALTER TABLE ${table} ADD COLUMN ${safeDefinition}`);
 }
 
 /**
@@ -379,7 +411,7 @@ function ensureColumn(
  */
 export function initDatabase(): DatabaseInstance {
   if (db) return db;
-  
+
   const dbPath = getDatabasePath();
   log('[Database] Opening database at:', dbPath);
 
@@ -393,51 +425,51 @@ export function initDatabase(): DatabaseInstance {
 
   // Enable foreign keys
   rawDb.pragma('foreign_keys = ON');
-  
+
   // Initialize schema
   initializeSchema(rawDb);
-  
+
   // Prepare statements for better performance
   const insertSession = rawDb.prepare(`
     INSERT OR REPLACE INTO sessions
     (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  
+
   // Note: Dynamic update queries are built in sessions.update() for flexibility
   // const updateSessionStmt = rawDb.prepare(`
   //   UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?
   // `);
-  
+
   const getSessionStmt = rawDb.prepare(`
     SELECT * FROM sessions WHERE id = ?
   `);
-  
+
   const getAllSessionsStmt = rawDb.prepare(`
     SELECT * FROM sessions ORDER BY updated_at DESC
   `);
-  
+
   const deleteSessionStmt = rawDb.prepare(`
     DELETE FROM sessions WHERE id = ?
   `);
-  
+
   const insertMessage = rawDb.prepare(`
     INSERT INTO messages (id, session_id, role, content, timestamp, token_usage, execution_time_ms)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
-  
+
   const getMessagesBySessionStmt = rawDb.prepare(`
     SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC
   `);
-  
+
   const updateMessageStmt = rawDb.prepare(`
     UPDATE messages SET execution_time_ms = ? WHERE id = ?
   `);
-  
+
   const deleteMessageStmt = rawDb.prepare(`
     DELETE FROM messages WHERE id = ?
   `);
-  
+
   const deleteMessagesBySessionStmt = rawDb.prepare(`
     DELETE FROM messages WHERE session_id = ?
   `);
@@ -475,10 +507,10 @@ export function initDatabase(): DatabaseInstance {
   const deleteScheduledTaskStmt = rawDb.prepare(`
     DELETE FROM scheduled_tasks WHERE id = ?
   `);
-  
+
   db = {
     raw: rawDb,
-    
+
     sessions: {
       create: (session: SessionRow) => {
         insertSession.run(
@@ -496,7 +528,7 @@ export function initDatabase(): DatabaseInstance {
           session.updated_at
         );
       },
-      
+
       update: (id: string, updates: Partial<SessionRow>) => {
         // Build dynamic update query
         const setClauses: string[] = [];
@@ -520,21 +552,21 @@ export function initDatabase(): DatabaseInstance {
         const sql = `UPDATE sessions SET ${setClauses.join(', ')} WHERE id = ?`;
         rawDb.prepare(sql).run(...values);
       },
-      
+
       get: (id: string): SessionRow | undefined => {
         return getSessionStmt.get(id) as SessionRow | undefined;
       },
-      
+
       getAll: (): SessionRow[] => {
         return getAllSessionsStmt.all() as SessionRow[];
       },
-      
+
       delete: (id: string) => {
         // Messages will be deleted automatically due to ON DELETE CASCADE
         deleteSessionStmt.run(id);
       },
     },
-    
+
     messages: {
       create: (message: MessageRow) => {
         insertMessage.run(
@@ -547,21 +579,21 @@ export function initDatabase(): DatabaseInstance {
           message.execution_time_ms ?? null
         );
       },
-      
+
       update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms'>>) => {
         if (updates.execution_time_ms !== undefined) {
           updateMessageStmt.run(updates.execution_time_ms, id);
         }
       },
-      
+
       getBySessionId: (sessionId: string): MessageRow[] => {
         return getMessagesBySessionStmt.all(sessionId) as MessageRow[];
       },
-      
+
       delete: (id: string) => {
         deleteMessageStmt.run(id);
       },
-      
+
       deleteBySessionId: (sessionId: string) => {
         deleteMessagesBySessionStmt.run(sessionId);
       },
@@ -668,7 +700,7 @@ export function initDatabase(): DatabaseInstance {
         deleteScheduledTaskStmt.run(id);
       },
     },
-    
+
     // Compatibility layer for old interface
     prepare: (sql: string) => rawDb.prepare(sql),
     exec: (sql: string) => rawDb.exec(sql),
@@ -678,7 +710,7 @@ export function initDatabase(): DatabaseInstance {
       db = null;
     },
   };
-  
+
   log('[Database] SQLite database initialized successfully');
   return db!;
 }

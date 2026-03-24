@@ -161,7 +161,9 @@ describe('api config state helpers', () => {
     const snapshot = buildApiConfigSnapshot(config, FALLBACK_PROVIDER_PRESETS);
     expect(snapshot.profiles.openai.apiKey).toBe('sk-openai');
     expect(snapshot.profiles.openrouter.baseUrl).toBe(FALLBACK_PROVIDER_PRESETS.openrouter.baseUrl);
-    expect(snapshot.profiles['custom:anthropic'].model).toBe(FALLBACK_PROVIDER_PRESETS.custom.models[0]?.id);
+    expect(snapshot.profiles['custom:anthropic'].model).toBe(
+      FALLBACK_PROVIDER_PRESETS.custom.models[0]?.id
+    );
     expect(snapshot.profiles['custom:anthropic'].useCustomModel).toBe(true);
     expect(snapshot.profiles['custom:anthropic'].customModel).toBe('');
   });
@@ -170,7 +172,7 @@ describe('api config state helpers', () => {
     expect(isCustomAnthropicLoopbackGateway('http://127.0.0.1:8082')).toBe(true);
     expect(isCustomAnthropicLoopbackGateway('http://localhost:8082')).toBe(true);
     expect(isCustomAnthropicLoopbackGateway('http://[::1]:8082')).toBe(true);
-    expect(isCustomAnthropicLoopbackGateway('http://0.0.0.0:8082')).toBe(true);
+    expect(isCustomAnthropicLoopbackGateway('http://0.0.0.0:8082')).toBe(false);
     expect(isCustomAnthropicLoopbackGateway('https://proxy.example.com')).toBe(false);
   });
 
@@ -178,7 +180,7 @@ describe('api config state helpers', () => {
     expect(isCustomGeminiLoopbackGateway('http://127.0.0.1:8082')).toBe(true);
     expect(isCustomGeminiLoopbackGateway('http://localhost:8082')).toBe(true);
     expect(isCustomGeminiLoopbackGateway('http://[::1]:8082')).toBe(true);
-    expect(isCustomGeminiLoopbackGateway('http://0.0.0.0:8082')).toBe(true);
+    expect(isCustomGeminiLoopbackGateway('http://0.0.0.0:8082')).toBe(false);
     expect(isCustomGeminiLoopbackGateway('https://proxy.example.com')).toBe(false);
   });
 
@@ -186,7 +188,7 @@ describe('api config state helpers', () => {
     expect(isCustomOpenAiLoopbackGateway('http://127.0.0.1:8082/v1')).toBe(true);
     expect(isCustomOpenAiLoopbackGateway('http://localhost:8082')).toBe(true);
     expect(isCustomOpenAiLoopbackGateway('http://[::1]:8082')).toBe(true);
-    expect(isCustomOpenAiLoopbackGateway('http://0.0.0.0:8082')).toBe(true);
+    expect(isCustomOpenAiLoopbackGateway('http://0.0.0.0:8082')).toBe(false);
     expect(isCustomOpenAiLoopbackGateway('https://relay.example.com/v1')).toBe(false);
   });
 
@@ -245,19 +247,35 @@ describe('api config state helpers', () => {
 
   it('exposes updated preset lists and custom guidance', () => {
     expect(FALLBACK_PROVIDER_PRESETS.openai.models.map((item) => item.id)).toContain('gpt-5.4');
-    expect(FALLBACK_PROVIDER_PRESETS.openai.models.map((item) => item.id)).toContain('gpt-5.3-codex');
+    expect(FALLBACK_PROVIDER_PRESETS.openai.models.map((item) => item.id)).toContain(
+      'gpt-5.3-codex'
+    );
     expect(FALLBACK_PROVIDER_PRESETS.openai.models.map((item) => item.id)).not.toContain('gpt-5.2');
-    expect(FALLBACK_PROVIDER_PRESETS.anthropic.models.map((item) => item.id)).toContain('claude-sonnet-4-6');
-    expect(FALLBACK_PROVIDER_PRESETS.gemini.models.map((item) => item.id)).toContain('gemini-3.1-pro-preview');
-    expect(FALLBACK_PROVIDER_PRESETS.custom.models.map((item) => item.id)).toContain('kimi-k2-thinking');
+    expect(FALLBACK_PROVIDER_PRESETS.anthropic.models.map((item) => item.id)).toContain(
+      'claude-sonnet-4-6'
+    );
+    expect(FALLBACK_PROVIDER_PRESETS.gemini.models.map((item) => item.id)).toContain(
+      'gemini-3.1-pro-preview'
+    );
+    expect(FALLBACK_PROVIDER_PRESETS.custom.models.map((item) => item.id)).toContain(
+      'kimi-k2-thinking'
+    );
     expect(FALLBACK_PROVIDER_PRESETS.custom.models.map((item) => item.id)).toContain('glm-5');
-    expect(FALLBACK_PROVIDER_PRESETS.custom.models.map((item) => item.id)).toContain('MiniMax-M2.5');
-    expect(FALLBACK_PROVIDER_PRESETS.custom.models.map((item) => item.id)).toContain('grok-code-fast-1');
-    expect(FALLBACK_PROVIDER_PRESETS.custom.models.map((item) => item.id)).toContain('mistral-large-latest');
+    expect(FALLBACK_PROVIDER_PRESETS.custom.models.map((item) => item.id)).toContain(
+      'MiniMax-M2.5'
+    );
+    expect(FALLBACK_PROVIDER_PRESETS.custom.models.map((item) => item.id)).toContain(
+      'grok-code-fast-1'
+    );
+    expect(FALLBACK_PROVIDER_PRESETS.custom.models.map((item) => item.id)).toContain(
+      'mistral-large-latest'
+    );
 
     expect(getModelInputGuidance('custom', 'openai').placeholder).toContain('deepseek-chat');
     expect(getModelInputGuidance('custom', 'openai').placeholder).not.toContain('kimi');
-    expect(getModelInputGuidance('custom', 'openai').hint).toContain('selected protocol or endpoint');
+    expect(getModelInputGuidance('custom', 'openai').hint).toContain(
+      'selected protocol or endpoint'
+    );
   });
 
   it('wires local Ollama discovery through the shared config hook', () => {
@@ -269,9 +287,11 @@ describe('api config state helpers', () => {
     expect(source).toContain("showErrorKey('api.localOllamaNoModels')");
     expect(source).toContain('ollamaDiscoverRequestIdRef');
     // useReducer refactor: cleared via dispatch action instead of direct setter
-    expect(source).toContain("dispatch({ type: 'CLEAR_DISCOVERED_MODELS', profileKey: requestedProfileKey })");
+    expect(source).toContain(
+      "dispatch({ type: 'CLEAR_DISCOVERED_MODELS', profileKey: requestedProfileKey })"
+    );
     expect(source).toContain('autoSelectModelId: models[0]?.id');
-    expect(source).not.toContain('showErrorKey(\'api.localOllamaModelUnavailable\'');
+    expect(source).not.toContain("showErrorKey('api.localOllamaModelUnavailable'");
     expect(source).not.toContain('shouldAutoDiscoverLocalOllamaBaseUrl(baseUrl)');
   });
 

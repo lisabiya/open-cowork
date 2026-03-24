@@ -5,7 +5,7 @@ describe('loopback url helpers', () => {
   it('detects loopback hostnames across ipv4 and ipv6 forms', () => {
     expect(isLoopbackHostname('localhost')).toBe(true);
     expect(isLoopbackHostname('127.0.0.1')).toBe(true);
-    expect(isLoopbackHostname('0.0.0.0')).toBe(true);
+    expect(isLoopbackHostname('0.0.0.0')).toBe(false);
     expect(isLoopbackHostname('::1')).toBe(true);
     expect(isLoopbackHostname('[::1]')).toBe(true);
     expect(isLoopbackHostname('api.example.com')).toBe(false);
@@ -15,7 +15,7 @@ describe('loopback url helpers', () => {
     expect(isLoopbackBaseUrl('http://127.0.0.1:8082')).toBe(true);
     expect(isLoopbackBaseUrl('localhost:8082')).toBe(true);
     expect(isLoopbackBaseUrl('http://[::1]:8082')).toBe(true);
-    expect(isLoopbackBaseUrl('http://0.0.0.0:8082')).toBe(true);
+    expect(isLoopbackBaseUrl('http://0.0.0.0:8082')).toBe(false);
     expect(isLoopbackBaseUrl('https://proxy.example.com')).toBe(false);
     expect(isLoopbackBaseUrl('')).toBe(false);
     expect(isLoopbackBaseUrl(undefined)).toBe(false);

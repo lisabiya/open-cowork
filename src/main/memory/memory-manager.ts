@@ -278,14 +278,15 @@ export class MemoryManager {
    * Search memory entries using LIKE-based text search
    */
   searchMemory(sessionId: string, query: string): MemoryEntry[] {
+    const escapedQuery = query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     const stmt = this.db.prepare(`
       SELECT * FROM memory_entries
-      WHERE session_id = ? AND content LIKE ?
+      WHERE session_id = ? AND content LIKE ? ESCAPE '\\'
       ORDER BY created_at DESC
       LIMIT 20
     `);
 
-    const rows = stmt.all(sessionId, `%${query}%`) as Record<string, unknown>[];
+    const rows = stmt.all(sessionId, `%${escapedQuery}%`) as Record<string, unknown>[];
 
     return rows.map((row) => {
       let metadata;

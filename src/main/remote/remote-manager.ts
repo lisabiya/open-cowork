@@ -40,9 +40,9 @@ export interface AgentExecutor {
 // Question/Permission request from agent
 export interface RemoteInteraction {
   type: 'question' | 'permission';
-  sessionId: string;      // Actual session ID
+  sessionId: string; // Actual session ID
   remoteSessionId: string; // Remote session ID (for routing back)
-  ownerSenderId: string;  // Sender ID of the session owner (for security verification)
+  ownerSenderId: string; // Sender ID of the session owner (for security verification)
   questionId?: string;
   toolUseId?: string;
   toolName?: string;
@@ -62,34 +62,36 @@ export class RemoteManager extends EventEmitter {
   private messageRouter: MessageRouter;
   private agentExecutor?: AgentExecutor;
   private sendToRenderer?: (event: ServerEvent) => void;
-  
+
   // Session state tracking
   private remoteSessionIds: Set<string> = new Set();
-  
+
   // Mapping: actual session ID -> remote session ID
   private sessionIdMapping: Map<string, string> = new Map();
-  
+
   // Mapping: remote session ID -> actual session ID (reverse mapping)
   private reverseSessionIdMapping: Map<string, string> = new Map();
-  
+
   // Mapping: remote session ID -> channel info (for routing responses back)
-  private sessionChannelMapping: Map<string, { channelType: ChannelType; channelId: string }> = new Map();
+  private sessionChannelMapping: Map<string, { channelType: ChannelType; channelId: string }> =
+    new Map();
 
   // Mapping: remote session ID -> owner sender ID (for interaction security)
   private sessionOwnerMapping: Map<string, string> = new Map();
-  
+
   // Pending interactions (questions/permissions) waiting for user response
   private pendingInteractions: Map<string, RemoteInteraction> = new Map();
-  
+
   // Callbacks for resolving pending interactions
   private interactionResolvers: Map<string, (response: string) => void> = new Map();
-  
+
   // Response buffer for collecting messages before sending (to avoid spam)
-  private responseBuffers: Map<string, { texts: string[]; lastSent: number; toolSteps: string[] }> = new Map();
-  
+  private responseBuffers: Map<string, { texts: string[]; lastSent: number; toolSteps: string[] }> =
+    new Map();
+
   // Sent message hashes to avoid duplicates
   private sentMessageHashes: Map<string, Set<string>> = new Map();
-  
+
   // Debounce timers for sending buffered responses
   private sendTimers: Map<string, NodeJS.Timeout> = new Map();
 
@@ -98,21 +100,31 @@ export class RemoteManager extends EventEmitter {
 
   // 远程默认工作目录（用于未指定 cwd 的会话）
   private defaultWorkingDirectory?: string;
-  
+
   constructor() {
     super();
     this.messageRouter = new MessageRouter();
   }
-  
+
   /**
    * Set agent executor (called from main process)
    */
   setAgentExecutor(executor: AgentExecutor): void {
     this.agentExecutor = executor;
-    
+
     // Set up message router callback
     this.messageRouter.setAgentCallback(
-      async (sessionId, prompt, content, workingDirectory, channelType, channelId, senderId, onMessage, onPartial) => {
+      async (
+        sessionId,
+        prompt,
+        content,
+        workingDirectory,
+        channelType,
+        channelId,
+        senderId,
+        onMessage,
+        onPartial
+      ) => {
         await this.executeAgent(
           sessionId,
           prompt,
@@ -130,7 +142,7 @@ export class RemoteManager extends EventEmitter {
     if (executor.validateWorkingDirectory) {
       this.messageRouter.setWorkingDirectoryValidator(executor.validateWorkingDirectory);
     }
-    
+
     log('[RemoteManager] Agent executor set');
   }
 
@@ -142,40 +154,41 @@ export class RemoteManager extends EventEmitter {
     this.messageRouter.setDefaultWorkingDirectory(dir);
     log('[RemoteManager] Default working directory set:', dir || '(none)');
   }
-  
+
   /**
    * Set renderer callback (for UI updates)
    */
   setRendererCallback(callback: (event: ServerEvent) => void): void {
     this.sendToRenderer = callback;
   }
-  
+
   /**
    * Initialize and start remote control
    */
   async start(): Promise<void> {
     const config = remoteConfigStore.getAll();
-    
+
     if (!config.gateway.enabled) {
       log('[RemoteManager] Remote control is disabled');
       return;
     }
-    
+
     log('[RemoteManager] Starting remote control system...');
-    
+
     try {
       // Create gateway
       this.gateway = new RemoteGateway(config.gateway, this.messageRouter);
-      
+
       // 设置远程默认工作目录（优先使用配置，其次使用全局默认）
-      const configuredDefaultWorkingDir = config.gateway.defaultWorkingDirectory || this.defaultWorkingDirectory;
+      const configuredDefaultWorkingDir =
+        config.gateway.defaultWorkingDirectory || this.defaultWorkingDirectory;
       if (configuredDefaultWorkingDir) {
         this.setDefaultWorkingDirectory(configuredDefaultWorkingDir);
       }
-      
+
       // Set up gateway event handlers
       this.setupGatewayEvents();
-      
+
       // Set up message interceptor for interaction responses
       this.gateway.setMessageInterceptor((message) => {
         return this.handlePotentialInteractionResponse(
@@ -185,26 +198,25 @@ export class RemoteManager extends EventEmitter {
           message.content.text || ''
         );
       });
-      
+
       // Register configured channels
       await this.registerChannels(config);
-      
+
       // Load paired users from config
       this.loadPairedUsers();
-      
+
       // Start gateway
       await this.gateway.start();
-      
+
       // Start tunnel if configured
       const tunnelUrl = await tunnelManager.start(config.gateway.port);
       if (tunnelUrl) {
         log('[RemoteManager] Tunnel URL:', tunnelUrl);
         log('[RemoteManager] Feishu Webhook URL:', `${tunnelUrl}/webhook/feishu`);
       }
-      
+
       log('[RemoteManager] Remote control system started');
       this.emitStatusUpdate();
-      
     } catch (error) {
       if ((error as NodeJS.ErrnoException | undefined)?.code === 'EADDRINUSE') {
         logWarn(
@@ -220,7 +232,7 @@ export class RemoteManager extends EventEmitter {
       throw error;
     }
   }
-  
+
   /**
    * Stop remote control
    */
@@ -228,24 +240,23 @@ export class RemoteManager extends EventEmitter {
     if (!this.gateway) {
       return;
     }
-    
+
     log('[RemoteManager] Stopping remote control system...');
-    
+
     // Stop tunnel first
     await tunnelManager.stop();
-    
+
     try {
       await this.gateway.stop();
       this.gateway = undefined;
-      
+
       log('[RemoteManager] Remote control system stopped');
       this.emitStatusUpdate();
-      
     } catch (error) {
       logError('[RemoteManager] Error stopping remote control:', error);
     }
   }
-  
+
   /**
    * Restart remote control
    */
@@ -253,7 +264,7 @@ export class RemoteManager extends EventEmitter {
     await this.stop();
     await this.start();
   }
-  
+
   /**
    * Get gateway status
    */
@@ -266,51 +277,51 @@ export class RemoteManager extends EventEmitter {
         pendingPairings: 0,
       };
     }
-    
+
     return {
       ...this.gateway.getStatus(),
       tunnel: tunnelManager.getStatus(),
     };
   }
-  
+
   /**
    * Get tunnel status
    */
   getTunnelStatus(): TunnelStatus {
     return tunnelManager.getStatus();
   }
-  
+
   /**
    * Get Feishu webhook URL (from tunnel)
    */
   getFeishuWebhookUrl(): string | null {
     return tunnelManager.getWebhookUrl();
   }
-  
+
   /**
    * Update gateway config
    */
   async updateGatewayConfig(config: Partial<GatewayConfig>): Promise<void> {
     remoteConfigStore.setGatewayConfig(config);
-    
+
     // Restart if running
     if (this.gateway?.running) {
       await this.restart();
     }
   }
-  
+
   /**
    * Update feishu channel config
    */
   async updateFeishuConfig(config: FeishuChannelConfig): Promise<void> {
     remoteConfigStore.setFeishuConfig(config);
-    
+
     // Restart to apply changes
     if (this.gateway?.running) {
       await this.restart();
     }
   }
-  
+
   /**
    * Approve pairing request
    */
@@ -318,9 +329,9 @@ export class RemoteManager extends EventEmitter {
     if (!this.gateway) {
       return false;
     }
-    
+
     const success = this.gateway.approvePairing(channelType, userId);
-    
+
     if (success) {
       // Persist to config
       remoteConfigStore.addPairedUser({
@@ -329,13 +340,13 @@ export class RemoteManager extends EventEmitter {
         pairedAt: Date.now(),
         lastActiveAt: Date.now(),
       });
-      
+
       this.emitStatusUpdate();
     }
-    
+
     return success;
   }
-  
+
   /**
    * Revoke user pairing
    */
@@ -343,59 +354,59 @@ export class RemoteManager extends EventEmitter {
     if (!this.gateway) {
       return false;
     }
-    
+
     const success = this.gateway.revokePairing(channelType, userId);
-    
+
     if (success) {
       remoteConfigStore.removePairedUser(channelType, userId);
       this.emitStatusUpdate();
     }
-    
+
     return success;
   }
-  
+
   /**
    * Get paired users
    */
   getPairedUsers(): PairedUser[] {
     return remoteConfigStore.getPairedUsers();
   }
-  
+
   /**
    * Get pending pairing requests
    */
   getPendingPairings(): PairingRequest[] {
     return this.gateway?.getPendingPairings() || [];
   }
-  
+
   /**
    * Get active remote sessions
    */
   getRemoteSessions(): RemoteSessionMapping[] {
     return this.messageRouter.getAllSessionMappings();
   }
-  
+
   /**
    * Clear remote session
    */
   clearRemoteSession(sessionId: string): boolean {
     return this.messageRouter.clearSession(sessionId);
   }
-  
+
   /**
    * Check if a session is a remote session
    */
   isRemoteSession(actualSessionId: string): boolean {
     return this.sessionIdMapping.has(actualSessionId);
   }
-  
+
   /**
    * Get remote session ID from actual session ID
    */
   getRemoteSessionId(actualSessionId: string): string | undefined {
     return this.sessionIdMapping.get(actualSessionId);
   }
-  
+
   /**
    * Handle question request from agent (for remote sessions)
    * Returns true if handled, false if should use normal UI
@@ -414,23 +425,23 @@ export class RemoteManager extends EventEmitter {
     if (!remoteSessionId) {
       return null; // Not a remote session
     }
-    
+
     const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
     if (!channelInfo || !this.gateway) {
       return null;
     }
-    
+
     log('[RemoteManager] Handling question request for remote session:', remoteSessionId);
-    
+
     // Build question message for Feishu
     let messageText = '🤔 **需要你的回答**\n\n';
-    
+
     questions.forEach((q, _qIdx) => {
       if (q.header) {
         messageText += `**${q.header}**\n`;
       }
       messageText += `${q.question}\n\n`;
-      
+
       if (q.options && q.options.length > 0) {
         q.options.forEach((opt, optIdx) => {
           messageText += `  ${optIdx + 1}. ${opt.label}`;
@@ -449,9 +460,9 @@ export class RemoteManager extends EventEmitter {
         messageText += `*（请直接回复你的答案）*\n\n`;
       }
     });
-    
+
     messageText += `---\n*回复此消息来作答，或发送 "跳过" 跳过问题*`;
-    
+
     // Store pending interaction
     const interaction: RemoteInteraction = {
       type: 'question',
@@ -479,26 +490,33 @@ export class RemoteManager extends EventEmitter {
       });
     } catch (err) {
       logError('[RemoteManager] Failed to send question to channel:', err);
-      this.pendingInteractions.delete(questionId);
+      await this.withInteractionLock(async () => {
+        this.pendingInteractions.delete(questionId);
+      });
       return null;
     }
-    
+
     // Wait for user response
     return new Promise((resolve) => {
       this.interactionResolvers.set(questionId, resolve);
-      
+
       // Set timeout
-      setTimeout(() => {
-        if (this.pendingInteractions.has(questionId)) {
-          log('[RemoteManager] Question timeout:', questionId);
-          this.pendingInteractions.delete(questionId);
-          this.interactionResolvers.delete(questionId);
-          resolve('{}'); // Return empty answer on timeout
-        }
-      }, 5 * 60 * 1000);
+      setTimeout(
+        () => {
+          this.withInteractionLock(async () => {
+            if (this.pendingInteractions.has(questionId)) {
+              log('[RemoteManager] Question timeout:', questionId);
+              this.pendingInteractions.delete(questionId);
+              this.interactionResolvers.delete(questionId);
+              resolve('{}'); // Return empty answer on timeout
+            }
+          }).catch((err) => logError('[RemoteManager] Question timeout lock error:', err));
+        },
+        5 * 60 * 1000
+      );
     });
   }
-  
+
   /**
    * Handle permission request from agent (for remote sessions)
    * Returns true if handled, false if should use normal UI
@@ -513,31 +531,46 @@ export class RemoteManager extends EventEmitter {
     if (!remoteSessionId) {
       return null; // Not a remote session
     }
-    
+
     const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
     if (!channelInfo || !this.gateway) {
       return null;
     }
-    
+
     log('[RemoteManager] Handling permission request for remote session:', remoteSessionId);
-    
+
     // Check if auto-approve is enabled for safe tools
     const config = remoteConfigStore.getAll();
     if (config.gateway.autoApproveSafeTools) {
       const safeTools = [
         // Read-only tools
-        'Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch',
+        'Read',
+        'Glob',
+        'Grep',
+        'LS',
+        'WebFetch',
+        'WebSearch',
         // MCP Chrome tools (for browsing)
-        'mcp__Chrome__navigate_page', 'mcp__Chrome__take_screenshot', 'mcp__Chrome__take_snapshot',
-        'mcp__Chrome__click', 'mcp__Chrome__fill', 'mcp__Chrome__hover',
-        'mcp__Chrome__list_pages', 'mcp__Chrome__select_page', 'mcp__Chrome__new_page',
-        'mcp__Chrome__close_page', 'mcp__Chrome__wait_for', 'mcp__Chrome__press_key',
-        'mcp__Chrome__evaluate_script', 'mcp__Chrome__get_network_request',
-        'mcp__Chrome__list_network_requests', 'mcp__Chrome__list_console_messages',
+        'mcp__Chrome__navigate_page',
+        'mcp__Chrome__take_screenshot',
+        'mcp__Chrome__take_snapshot',
+        'mcp__Chrome__click',
+        'mcp__Chrome__fill',
+        'mcp__Chrome__hover',
+        'mcp__Chrome__list_pages',
+        'mcp__Chrome__select_page',
+        'mcp__Chrome__new_page',
+        'mcp__Chrome__close_page',
+        'mcp__Chrome__wait_for',
+        'mcp__Chrome__press_key',
+        'mcp__Chrome__evaluate_script',
+        'mcp__Chrome__get_network_request',
+        'mcp__Chrome__list_network_requests',
+        'mcp__Chrome__list_console_messages',
         // Task tools
         'Task',
       ];
-      
+
       if (safeTools.includes(toolName)) {
         log('[RemoteManager] Auto-approving safe tool:', toolName);
         // Send notification to user
@@ -545,7 +578,7 @@ export class RemoteManager extends EventEmitter {
         return { allow: true };
       }
     }
-    
+
     // Build permission request message
     let messageText = '⚠️ **需要你的授权**\n\n';
     messageText += `工具: **${toolName}**\n\n`;
@@ -554,7 +587,7 @@ export class RemoteManager extends EventEmitter {
     messageText += `回复 "允许" 或 "y" 授权\n`;
     messageText += `回复 "拒绝" 或 "n" 拒绝\n`;
     messageText += `回复 "始终允许" 记住此授权`;
-    
+
     // Store pending interaction
     const interaction: RemoteInteraction = {
       type: 'permission',
@@ -583,15 +616,22 @@ export class RemoteManager extends EventEmitter {
       });
     } catch (err) {
       logError('[RemoteManager] Failed to send permission request to channel:', err);
-      this.pendingInteractions.delete(toolUseId);
+      await this.withInteractionLock(async () => {
+        this.pendingInteractions.delete(toolUseId);
+      });
       return null;
     }
-    
+
     // Wait for user response
     return new Promise((resolve) => {
       this.interactionResolvers.set(toolUseId, (response) => {
         const lowerResponse = response.toLowerCase().trim();
-        if (lowerResponse === '允许' || lowerResponse === 'y' || lowerResponse === 'yes' || lowerResponse === '是') {
+        if (
+          lowerResponse === '允许' ||
+          lowerResponse === 'y' ||
+          lowerResponse === 'yes' ||
+          lowerResponse === '是'
+        ) {
           resolve({ allow: true });
         } else if (lowerResponse === '始终允许' || lowerResponse === 'always') {
           resolve({ allow: true, remember: true });
@@ -599,22 +639,29 @@ export class RemoteManager extends EventEmitter {
           resolve({ allow: false });
         }
       });
-      
+
       // Set timeout - auto deny on timeout
-      setTimeout(() => {
-        if (this.pendingInteractions.has(toolUseId)) {
-          log('[RemoteManager] Permission timeout:', toolUseId);
-          this.pendingInteractions.delete(toolUseId);
-          this.interactionResolvers.delete(toolUseId);
-          resolve({ allow: false }); // Deny on timeout
-        }
-      }, 5 * 60 * 1000);
+      setTimeout(
+        () => {
+          this.withInteractionLock(async () => {
+            if (this.pendingInteractions.has(toolUseId)) {
+              log('[RemoteManager] Permission timeout:', toolUseId);
+              this.pendingInteractions.delete(toolUseId);
+              this.interactionResolvers.delete(toolUseId);
+              resolve({ allow: false }); // Deny on timeout
+            }
+          }).catch((err) => logError('[RemoteManager] Permission timeout lock error:', err));
+        },
+        5 * 60 * 1000
+      );
     });
   }
 
   private async withInteractionLock<T>(fn: () => Promise<T>): Promise<T> {
     let release!: () => void;
-    const acquired = new Promise<void>(r => { release = r; });
+    const acquired = new Promise<void>((r) => {
+      release = r;
+    });
     const previous = this.lockChain;
     this.lockChain = acquired;
     await previous;
@@ -629,53 +676,55 @@ export class RemoteManager extends EventEmitter {
    * Handle incoming message that might be a response to pending interaction
    * Returns true if the message was consumed as an interaction response
    */
-  handlePotentialInteractionResponse(
+  async handlePotentialInteractionResponse(
     channelType: ChannelType,
     channelId: string,
     senderId: string,
     messageText: string
-  ): boolean {
-    // Find any pending interaction for this user
-    let found = false;
-    for (const [id, interaction] of this.pendingInteractions) {
-      const channelInfo = this.sessionChannelMapping.get(interaction.remoteSessionId);
-      if (!channelInfo) continue;
+  ): Promise<boolean> {
+    return this.withInteractionLock(async () => {
+      // Find any pending interaction for this user
+      let found = false;
+      for (const [id, interaction] of this.pendingInteractions) {
+        const channelInfo = this.sessionChannelMapping.get(interaction.remoteSessionId);
+        if (!channelInfo) continue;
 
-      if (channelInfo.channelType === channelType && channelInfo.channelId === channelId) {
-        // Verify that the responder is the session owner to prevent hijacking
-        if (interaction.ownerSenderId && senderId !== interaction.ownerSenderId) {
-          log('[RemoteManager] Ignoring interaction response from non-owner sender:', senderId);
-          continue;
-        }
-
-        log('[RemoteManager] Found pending interaction:', id);
-
-        // Remove from pending
-        this.pendingInteractions.delete(id);
-
-        // Resolve the interaction
-        const resolver = this.interactionResolvers.get(id);
-        if (resolver) {
-          this.interactionResolvers.delete(id);
-
-          if (interaction.type === 'question') {
-            // Parse question response
-            const response = this.parseQuestionResponse(messageText, interaction.questions || []);
-            resolver(response);
-          } else {
-            // Pass through for permission
-            resolver(messageText);
+        if (channelInfo.channelType === channelType && channelInfo.channelId === channelId) {
+          // Verify that the responder is the session owner to prevent hijacking
+          if (interaction.ownerSenderId && senderId !== interaction.ownerSenderId) {
+            log('[RemoteManager] Ignoring interaction response from non-owner sender:', senderId);
+            continue;
           }
+
+          log('[RemoteManager] Found pending interaction:', id);
+
+          // Remove from pending
+          this.pendingInteractions.delete(id);
+
+          // Resolve the interaction
+          const resolver = this.interactionResolvers.get(id);
+          if (resolver) {
+            this.interactionResolvers.delete(id);
+
+            if (interaction.type === 'question') {
+              // Parse question response
+              const response = this.parseQuestionResponse(messageText, interaction.questions || []);
+              resolver(response);
+            } else {
+              // Pass through for permission
+              resolver(messageText);
+            }
+          }
+
+          found = true;
+          break; // Only handle one interaction per message
         }
-
-        found = true;
-        break; // Only handle one interaction per message
       }
-    }
 
-    return found;
+      return found;
+    });
   }
-  
+
   /**
    * Parse question response from user message
    */
@@ -688,12 +737,15 @@ export class RemoteManager extends EventEmitter {
     }>
   ): string {
     const answers: Record<number, string[]> = {};
-    
+
     // Handle "跳过" response
-    if (messageText.toLowerCase().trim() === '跳过' || messageText.toLowerCase().trim() === 'skip') {
+    if (
+      messageText.toLowerCase().trim() === '跳过' ||
+      messageText.toLowerCase().trim() === 'skip'
+    ) {
       return '{}';
     }
-    
+
     // Simple parsing: if there are options, try to parse numbers
     questions.forEach((q, qIdx) => {
       if (q.options && q.options.length > 0) {
@@ -701,10 +753,10 @@ export class RemoteManager extends EventEmitter {
         const numbers = messageText.match(/\d+/g);
         if (numbers) {
           const selectedLabels = numbers
-            .map(n => parseInt(n) - 1) // Convert to 0-indexed
-            .filter(idx => idx >= 0 && idx < q.options!.length)
-            .map(idx => q.options![idx].label);
-          
+            .map((n) => parseInt(n) - 1) // Convert to 0-indexed
+            .filter((idx) => idx >= 0 && idx < q.options!.length)
+            .map((idx) => q.options![idx].label);
+
           if (selectedLabels.length > 0) {
             answers[qIdx] = q.multiSelect ? selectedLabels : [selectedLabels[0]];
           }
@@ -714,33 +766,37 @@ export class RemoteManager extends EventEmitter {
         answers[qIdx] = [messageText.trim()];
       }
     });
-    
+
     return JSON.stringify(answers);
   }
-  
+
   /**
    * Get pending interactions count
    */
   getPendingInteractionsCount(): number {
     return this.pendingInteractions.size;
   }
-  
+
   /**
    * Send agent response back to channel (with buffering to avoid spam)
    */
-  async sendResponseToChannel(actualSessionId: string, text: string, immediate: boolean = false): Promise<void> {
+  async sendResponseToChannel(
+    actualSessionId: string,
+    text: string,
+    immediate: boolean = false
+  ): Promise<void> {
     const remoteSessionId = this.sessionIdMapping.get(actualSessionId);
     if (!remoteSessionId) {
       log('[RemoteManager] Not a remote session, skipping channel response:', actualSessionId);
       return;
     }
-    
+
     const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
     if (!channelInfo || !this.gateway) {
       logError('[RemoteManager] No channel info for remote session:', remoteSessionId);
       return;
     }
-    
+
     // Check for duplicate
     const hash = this.hashText(text);
     if (!this.sentMessageHashes.has(actualSessionId)) {
@@ -756,63 +812,63 @@ export class RemoteManager extends EventEmitter {
       sentHashes.clear();
     }
     sentHashes.add(hash);
-    
+
     // For immediate sends (like final result), send directly
     if (immediate) {
       await this.doSendToChannel(channelInfo, text);
       return;
     }
-    
+
     // Buffer the response
     if (!this.responseBuffers.has(actualSessionId)) {
       this.responseBuffers.set(actualSessionId, { texts: [], lastSent: 0, toolSteps: [] });
     }
     const buffer = this.responseBuffers.get(actualSessionId)!;
     buffer.texts.push(text);
-    
+
     // Clear existing timer
     const existingTimer = this.sendTimers.get(actualSessionId);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
-    
+
     // Set debounce timer (send after 2 seconds of no new messages)
     const timer = setTimeout(() => {
-      this.flushResponseBuffer(actualSessionId).catch(err => {
+      this.flushResponseBuffer(actualSessionId).catch((err) => {
         logError('[RemoteManager] Failed to flush buffer:', err);
       });
     }, 2000);
     this.sendTimers.set(actualSessionId, timer);
   }
-  
+
   /**
    * Flush buffered responses and send to channel
    */
   private async flushResponseBuffer(actualSessionId: string): Promise<void> {
     const buffer = this.responseBuffers.get(actualSessionId);
     if (!buffer || buffer.texts.length === 0) return;
-    
+
     const remoteSessionId = this.sessionIdMapping.get(actualSessionId);
     if (!remoteSessionId) return;
-    
+
     const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
     if (!channelInfo || !this.gateway) return;
-    
+
     // Combine all buffered texts
     const combinedText = buffer.texts.join('\n\n');
     buffer.texts = [];
     buffer.lastSent = Date.now();
-    
+
     // Clear timer
     const timer = this.sendTimers.get(actualSessionId);
     if (timer) {
       clearTimeout(timer);
       this.sendTimers.delete(actualSessionId);
     }
-    
+
     await this.doSendToChannel(channelInfo, combinedText);
   }
-  
+
   /**
    * Actually send message to channel
    */
@@ -824,7 +880,7 @@ export class RemoteManager extends EventEmitter {
       channelType: channelInfo.channelType,
       textLength: text.length,
     });
-    
+
     try {
       await this.gateway!.sendResponse({
         channelType: channelInfo.channelType,
@@ -838,7 +894,7 @@ export class RemoteManager extends EventEmitter {
       logError('[RemoteManager] Failed to send to channel:', err);
     }
   }
-  
+
   /**
    * Simple hash function for deduplication
    */
@@ -846,31 +902,36 @@ export class RemoteManager extends EventEmitter {
     let hash = 0;
     for (let i = 0; i < text.length; i++) {
       const char = text.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash = hash & hash; // Convert to 32bit integer
     }
     return hash.toString();
   }
-  
+
   /**
    * Send tool execution progress to channel
    */
-  async sendToolProgress(actualSessionId: string, toolName: string, status: 'running' | 'completed' | 'error', output?: string): Promise<void> {
+  async sendToolProgress(
+    actualSessionId: string,
+    toolName: string,
+    status: 'running' | 'completed' | 'error',
+    output?: string
+  ): Promise<void> {
     const remoteSessionId = this.sessionIdMapping.get(actualSessionId);
     if (!remoteSessionId) return;
-    
+
     const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
     if (!channelInfo || !this.gateway) return;
-    
+
     // Only send notifications for interesting tools
     const notifyTools = ['Bash', 'Write', 'Edit', 'WebSearch', 'WebFetch', 'mcp__Chrome__'];
-    const shouldNotify = notifyTools.some(t => toolName.includes(t));
-    
+    const shouldNotify = notifyTools.some((t) => toolName.includes(t));
+
     if (!shouldNotify) return;
-    
+
     let emoji = '🔧';
     let statusText = '';
-    
+
     switch (status) {
       case 'running':
         emoji = '⏳';
@@ -891,7 +952,7 @@ export class RemoteManager extends EventEmitter {
         }
         break;
     }
-    
+
     // Only send running status for long-running tools
     if (status === 'running') {
       // Add to buffer's tool steps
@@ -901,14 +962,14 @@ export class RemoteManager extends EventEmitter {
       this.responseBuffers.get(actualSessionId)!.toolSteps.push(`${emoji} ${statusText}`);
       return;
     }
-    
+
     // Send completed/error status immediately for important tools
     if (status === 'completed' && toolName.includes('mcp__Chrome__')) {
       // For Chrome MCP, send progress
       await this.doSendToChannel(channelInfo, `${emoji} ${statusText}`);
     }
   }
-  
+
   /**
    * Clear session response buffer (call when session ends)
    * Flushes any pending messages before clearing
@@ -940,21 +1001,21 @@ export class RemoteManager extends EventEmitter {
       this.sessionOwnerMapping.delete(sessionId);
     }
   }
-  
+
   // ============================================================================
   // Private Methods
   // ============================================================================
-  
+
   /**
    * Set up gateway event handlers
    */
   private setupGatewayEvents(): void {
     if (!this.gateway) return;
-    
+
     this.gateway.on('event', (event) => {
       this.emit('event', event);
     });
-    
+
     this.gateway.on('gateway.pairing_request', (data) => {
       log('[RemoteManager] New pairing request:', data);
       this.emitToRenderer({
@@ -963,16 +1024,16 @@ export class RemoteManager extends EventEmitter {
         payload: data,
       });
     });
-    
+
     this.gateway.on('gateway.started', () => {
       this.emitStatusUpdate();
     });
-    
+
     this.gateway.on('gateway.stopped', () => {
       this.emitStatusUpdate();
     });
   }
-  
+
   /**
    * Register configured channels
    */
@@ -986,23 +1047,30 @@ export class RemoteManager extends EventEmitter {
       this.gateway.registerChannel(feishuChannel);
 
       // Set up webhook handler
-      this.gateway.on('webhook:feishu', (data: { headers: Record<string, string>; body: string; respond: (status: number, responseData: unknown) => void }) => {
-        const result = feishuChannel.handleWebhook(data.headers, data.body);
-        data.respond(result.status, result.data);
-      });
+      this.gateway.on(
+        'webhook:feishu',
+        (data: {
+          headers: Record<string, string>;
+          body: string;
+          respond: (status: number, responseData: unknown) => void;
+        }) => {
+          const result = feishuChannel.handleWebhook(data.headers, data.body);
+          data.respond(result.status, result.data);
+        }
+      );
 
       log('[RemoteManager] Feishu channel registered');
     }
 
     // TODO: Register other channels (WeChat, Telegram, DingTalk)
   }
-  
+
   /**
    * Load paired users from config
    */
   private loadPairedUsers(): void {
     const users = remoteConfigStore.getPairedUsers();
-    
+
     for (const user of users) {
       // Re-approve each user in gateway
       // This is a simplified approach - in production you might want to
@@ -1010,7 +1078,7 @@ export class RemoteManager extends EventEmitter {
       log('[RemoteManager] Loaded paired user:', user.userId);
     }
   }
-  
+
   /**
    * Execute agent for remote message
    */
@@ -1023,7 +1091,7 @@ export class RemoteManager extends EventEmitter {
     channelId: string,
     senderId: string,
     _onMessage: (message: Message) => void,
-    _onPartial: (delta: string) => void,
+    _onPartial: (delta: string) => void
   ): Promise<void> {
     if (!this.agentExecutor) {
       throw new Error('Agent executor not set');
@@ -1056,7 +1124,14 @@ export class RemoteManager extends EventEmitter {
       // Store session owner for interaction security verification
       this.sessionOwnerMapping.set(sessionId, senderId);
 
-      log('[RemoteManager] Created new session:', newSession.id, 'for remote:', sessionId, 'cwd:', workingDirectory);
+      log(
+        '[RemoteManager] Created new session:',
+        newSession.id,
+        'for remote:',
+        sessionId,
+        'cwd:',
+        workingDirectory
+      );
       log('[RemoteManager] Session mapping stored:', newSession.id, '<->', sessionId);
       log('[RemoteManager] Emitting session update to renderer for:', newSession.id);
 
@@ -1084,7 +1159,7 @@ export class RemoteManager extends EventEmitter {
     // 2. Call onMessage and onPartial as the agent produces output
     // 3. Handle errors and timeouts
   }
-  
+
   /**
    * Emit status update to renderer
    */
@@ -1112,12 +1187,15 @@ export class RemoteManager extends EventEmitter {
   /**
    * 发送远程用户消息到本地 UI（仅远程会话使用）
    */
-  private emitRemoteUserMessage(actualSessionId: string, content: ContentBlock[], prompt: string): void {
+  private emitRemoteUserMessage(
+    actualSessionId: string,
+    content: ContentBlock[],
+    prompt: string
+  ): void {
     if (!this.sendToRenderer) return;
 
-    const messageContent: ContentBlock[] = content && content.length > 0
-      ? content
-      : [{ type: 'text', text: prompt }];
+    const messageContent: ContentBlock[] =
+      content && content.length > 0 ? content : [{ type: 'text', text: prompt }];
 
     const userMessage: Message = {
       id: uuidv4(),

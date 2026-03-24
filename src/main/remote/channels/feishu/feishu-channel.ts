@@ -18,21 +18,21 @@ import { FeishuWSClient } from './feishu-ws-client';
 
 export class FeishuChannel extends ChannelBase {
   readonly type = 'feishu' as const;
-  
+
   private config: FeishuChannelConfig;
   private api: FeishuAPI;
-  private wsClient?: FeishuWSClient;  // WebSocket client for long polling
-  
+  private wsClient?: FeishuWSClient; // WebSocket client for long polling
+
   // Bot info
   private botOpenId?: string;
   private botName?: string;
-  
+
   constructor(config: FeishuChannelConfig) {
     super();
     this.config = config;
     this.api = new FeishuAPI(config.appId, config.appSecret);
   }
-  
+
   /**
    * Start the channel
    */
@@ -41,37 +41,36 @@ export class FeishuChannel extends ChannelBase {
       logWarn('[Feishu] Channel already started');
       return;
     }
-    
+
     this.logStatus('Starting channel...');
-    
+
     try {
       // Get access token
       await this.api.refreshToken();
-      
+
       // Get bot info
       const botInfo = await this.api.getBotInfo();
       this.botOpenId = botInfo.open_id;
       this.botName = botInfo.app_name;
-      
+
       log('[Feishu] Bot info:', { openId: this.botOpenId, name: this.botName });
-      
+
       // Start message receiving
       if (this.config.useWebSocket) {
         await this.startWebSocketMode();
       } else {
         this.logStatus('Using webhook mode - waiting for incoming webhooks');
       }
-      
+
       this._connected = true;
       this.logStatus('Channel started successfully');
-      
     } catch (error) {
       logError('[Feishu] Failed to start channel:', error);
       this._connected = false;
       throw error;
     }
   }
-  
+
   /**
    * Stop the channel
    */
@@ -79,9 +78,9 @@ export class FeishuChannel extends ChannelBase {
     if (!this._connected) {
       return;
     }
-    
+
     this.logStatus('Stopping channel...');
-    
+
     // Close WebSocket if active
     if (this.wsClient) {
       try {
@@ -93,11 +92,11 @@ export class FeishuChannel extends ChannelBase {
       }
       this.wsClient = undefined;
     }
-    
+
     this._connected = false;
     this.logStatus('Channel stopped');
   }
-  
+
   /**
    * Send response to Feishu
    */
@@ -105,15 +104,15 @@ export class FeishuChannel extends ChannelBase {
     if (!this._connected) {
       throw new Error('Channel not connected');
     }
-    
+
     const { channelId, content, replyTo } = response;
-    
+
     log('[Feishu] Sending message:', {
       channelId,
       contentType: content.type,
       hasReplyTo: !!replyTo,
     });
-    
+
     try {
       await withRetry(
         async () => {
@@ -127,25 +126,32 @@ export class FeishuChannel extends ChannelBase {
           },
         }
       );
-      
+
       log('[Feishu] Message sent successfully');
-      
     } catch (error) {
       logError('[Feishu] Failed to send message:', error);
       throw error;
     }
   }
-  
+
   /**
    * Verify webhook signature from X-Lark-Signature header
    */
-  private verifyWebhookSignature(timestamp: string, nonce: string, body: string, signature: string): boolean {
+  private verifyWebhookSignature(
+    timestamp: string,
+    nonce: string,
+    body: string,
+    signature: string
+  ): boolean {
     const verificationToken = this.config?.verificationToken;
     if (!verificationToken) return true; // Skip if not configured
 
     try {
       const content = timestamp + nonce + verificationToken + body;
-      const computedSignature = crypto.createHmac('sha256', verificationToken).update(content).digest('hex');
+      const computedSignature = crypto
+        .createHmac('sha256', verificationToken)
+        .update(content)
+        .digest('hex');
       const sigBuf = Buffer.from(signature, 'hex');
       const computedBuf = Buffer.from(computedSignature, 'hex');
       if (sigBuf.length !== computedBuf.length) return false;
@@ -158,7 +164,10 @@ export class FeishuChannel extends ChannelBase {
   /**
    * Handle incoming webhook request
    */
-  handleWebhook(_headers: Record<string, string>, body: string): { status: number; data: Record<string, unknown> } {
+  handleWebhook(
+    _headers: Record<string, string>,
+    body: string
+  ): { status: number; data: Record<string, unknown> } {
     log('[Feishu] Received webhook request');
 
     // Verify webhook signature if present
@@ -173,7 +182,7 @@ export class FeishuChannel extends ChannelBase {
     try {
       const data = JSON.parse(body);
       log('[Feishu] Webhook data:', JSON.stringify(data, null, 2));
-      
+
       // Handle URL verification challenge
       if (data.type === 'url_verification') {
         log('[Feishu] URL verification challenge');
@@ -182,133 +191,135 @@ export class FeishuChannel extends ChannelBase {
           data: { challenge: data.challenge },
         };
       }
-      
+
       // Handle v2 schema (飞书新版事件格式)
       if (data.schema === '2.0') {
         log('[Feishu] Processing v2 schema event');
         const eventType = data.header?.event_type;
         log('[Feishu] Event type:', eventType);
-        
+
         if (eventType === 'im.message.receive_v1') {
           this.handleMessageEvent(data.event);
         }
-        
+
         return { status: 200, data: { code: 0 } };
       }
-      
+
       // Handle v1 schema (飞书旧版事件格式)
       if (data.event) {
         log('[Feishu] Processing v1 schema event');
         const eventType = data.header?.event_type || data.event?.type;
         log('[Feishu] Event type:', eventType);
-        
+
         if (eventType === 'im.message.receive_v1' || eventType === 'message') {
           this.handleMessageEvent(data.event);
         }
-        
+
         return { status: 200, data: { code: 0 } };
       }
-      
+
       // Verify request if encryption is enabled
       if (this.config.encryptKey && data.encrypt) {
         log('[Feishu] Encrypted message received, decryption not yet implemented');
         // TODO: Implement message decryption
       }
-      
+
       log('[Feishu] Unknown webhook format, returning OK');
       return { status: 200, data: { code: 0 } };
-      
     } catch (error) {
       logError('[Feishu] Webhook handling error:', error);
       return { status: 500, data: { error: 'Internal error' } };
     }
   }
-  
+
   /**
    * Start WebSocket mode (长连接)
    */
   private async startWebSocketMode(): Promise<void> {
     log('[Feishu] Starting WebSocket long connection mode...');
-    
+
     // Create WebSocket client
     this.wsClient = new FeishuWSClient({
       appId: this.config.appId,
       appSecret: this.config.appSecret,
       logLevel: 'info',
     });
-    
+
     // Handle incoming messages
     log('[Feishu] Registering message listener on wsClient');
     this.wsClient.on('message', (data: Record<string, unknown>) => {
       try {
-      log('[Feishu] Received message via WebSocket:', data);
-      
-      // Skip bot's own messages
-      if (data.senderType === 'bot') {
-        return;
-      }
-      
-      // Build remote message
-      // Use chatId as channelId - Feishu API needs chat_id to send messages
-      const rawText = String(data.text || '');
-      // Strip only the bot's own @mention placeholder from the text
-      const cleanedText = this.stripBotMentionFromText(rawText, {
-        mentions: Array.isArray(data.mentions) ? data.mentions : [],
-      });
-      const remoteMessage: RemoteMessage = {
-        id: String(data.messageId || ''),
-        channelType: 'feishu',
-        channelId: String(data.chatId || ''),  // Use actual chat_id for sending messages
-        sender: {
-          id: String(data.senderId || ''),
-          name: '', // Will be filled if needed
-          isBot: false,
-        },
-        content: {
-          type: 'text',
-          text: cleanedText,
-        },
-        timestamp: parseInt(String(data.createTime || '0')) || Date.now(),
-        isGroup: data.chatType === 'group',
-        isMentioned: Array.isArray(data.mentions) && data.mentions.some((m: Record<string, unknown>) => {
-          const mid = m.id as Record<string, unknown> | undefined;
-          return mid?.open_id === this.botOpenId;
-        }) || false,
-        raw: {
-          chatId: data.chatId,
-          chatType: data.chatType,
-          messageType: data.messageType,
-          senderId: data.senderId,
-          content: data.content,
-        },
-      };
-      
-      // Emit message to handler (same as webhook mode)
-      this.emitMessage(remoteMessage);
+        log('[Feishu] Received message via WebSocket:', data);
+
+        // Skip bot's own messages
+        if (data.senderType === 'bot') {
+          return;
+        }
+
+        // Build remote message
+        // Use chatId as channelId - Feishu API needs chat_id to send messages
+        const rawText = String(data.text || '');
+        // Strip only the bot's own @mention placeholder from the text
+        const cleanedText = this.stripBotMentionFromText(rawText, {
+          mentions: Array.isArray(data.mentions) ? data.mentions : [],
+        });
+        const remoteMessage: RemoteMessage = {
+          id: String(data.messageId || ''),
+          channelType: 'feishu',
+          channelId: String(data.chatId || ''), // Use actual chat_id for sending messages
+          sender: {
+            id: String(data.senderId || ''),
+            name: '', // Will be filled if needed
+            isBot: false,
+          },
+          content: {
+            type: 'text',
+            text: cleanedText,
+          },
+          timestamp: parseInt(String(data.createTime || '0')) || Date.now(),
+          isGroup: data.chatType === 'group',
+          isMentioned:
+            (Array.isArray(data.mentions) &&
+              data.mentions.some((m: Record<string, unknown>) => {
+                const mid = m.id as Record<string, unknown> | undefined;
+                return mid?.open_id === this.botOpenId;
+              })) ||
+            false,
+          raw: {
+            chatId: data.chatId,
+            chatType: data.chatType,
+            messageType: data.messageType,
+            senderId: data.senderId,
+            content: data.content,
+          },
+        };
+
+        // Emit message to handler (same as webhook mode)
+        this.emitMessage(remoteMessage);
       } catch (error) {
         logError('[Feishu] Error processing WebSocket message:', error);
       }
     });
-    
+
     // Handle connection events
     this.wsClient.on('connected', () => {
       log('[Feishu] WebSocket connected');
       this._connected = true;
     });
-    
+
     this.wsClient.on('disconnected', () => {
       logWarn('[Feishu] WebSocket disconnected');
       this._connected = false;
     });
-    
+
     this.wsClient.on('error', (error: Error) => {
       logError('[Feishu] WebSocket error:', error);
     });
-    
+
     // Start connection
     await this.wsClient.start();
   }
-  
+
   /**
    * Handle incoming message event
    */
@@ -357,7 +368,6 @@ export class FeishuChannel extends ChannelBase {
 
       // Emit message
       this.emitMessage(remoteMessage);
-
     } catch (error) {
       logError('[Feishu] Error handling message event:', error);
     }
@@ -377,12 +387,15 @@ export class FeishuChannel extends ChannelBase {
       const mid = m.id as Record<string, unknown> | undefined;
       if (mid?.open_id === this.botOpenId && typeof m.key === 'string') {
         // Remove this specific mention key and trailing space
-        result = result.replace(new RegExp(m.key.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&') + '\\s*', 'g'), '');
+        result = result.replace(
+          new RegExp(m.key.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&') + '\\s*', 'g'),
+          ''
+        );
       }
     }
     return result.trim();
   }
-  
+
   /**
    * Parse message content based on type
    */
@@ -391,7 +404,7 @@ export class FeishuChannel extends ChannelBase {
 
     try {
       const contentJson = JSON.parse(message.content as string) as Record<string, unknown>;
-      
+
       switch (msgType) {
         case 'text':
           return {
@@ -450,7 +463,7 @@ export class FeishuChannel extends ChannelBase {
       return null;
     }
   }
-  
+
   /**
    * Extract plain text from rich text post
    */
@@ -461,7 +474,7 @@ export class FeishuChannel extends ChannelBase {
       const zhCn = post.zh_cn as Record<string, unknown> | undefined;
       const enUs = post.en_us as Record<string, unknown> | undefined;
       const rawContent = post.content || zhCn?.content || enUs?.content || [];
-      const content = Array.isArray(rawContent) ? rawContent as unknown[][] : [];
+      const content = Array.isArray(rawContent) ? (rawContent as unknown[][]) : [];
 
       for (const paragraph of content) {
         for (const el of paragraph) {
@@ -480,7 +493,7 @@ export class FeishuChannel extends ChannelBase {
 
     return texts.join('').trim();
   }
-  
+
   /**
    * Check if the bot was mentioned in the message
    */
@@ -489,31 +502,38 @@ export class FeishuChannel extends ChannelBase {
       return false;
     }
 
-    return Array.isArray(message.mentions) && message.mentions.some((m: Record<string, unknown>) => {
-      const mid = m.id as Record<string, unknown> | undefined;
-      return mid?.open_id === this.botOpenId || m.key === '@_all';
-    });
+    return (
+      Array.isArray(message.mentions) &&
+      message.mentions.some((m: Record<string, unknown>) => {
+        const mid = m.id as Record<string, unknown> | undefined;
+        return mid?.open_id === this.botOpenId || m.key === '@_all';
+      })
+    );
   }
-  
+
   /**
    * Send message to Feishu
    */
-  private async sendMessage(chatId: string, content: RemoteResponseContent, replyTo?: string): Promise<void> {
+  private async sendMessage(
+    chatId: string,
+    content: RemoteResponseContent,
+    replyTo?: string
+  ): Promise<void> {
     let msgType: string;
     let msgContent: Record<string, unknown>;
-    
+
     switch (content.type) {
       case 'text':
         msgType = 'text';
         msgContent = { text: content.text };
         break;
-        
+
       case 'markdown':
         // Feishu doesn't support native markdown, convert to interactive card
         msgType = 'interactive';
         msgContent = this.markdownToCard(content.markdown ?? '');
         break;
-        
+
       case 'image':
         if (content.image?.key) {
           msgType = 'image';
@@ -527,18 +547,18 @@ export class FeishuChannel extends ChannelBase {
           throw new Error('Invalid image content');
         }
         break;
-        
+
       case 'card':
         msgType = 'interactive';
         msgContent = content.card as Record<string, unknown>;
         break;
-        
+
       default:
         // Default to text
         msgType = 'text';
         msgContent = { text: content.text || String(content) };
     }
-    
+
     // Use WebSocket client if available, otherwise use API
     if (this.config.useWebSocket && this.wsClient) {
       // For WebSocket mode, use the SDK client to send messages
@@ -551,10 +571,9 @@ export class FeishuChannel extends ChannelBase {
         }
       } else {
         // For text messages
-        const textContent = (typeof msgContent.text === 'string' ? msgContent.text : undefined)
-          || content.text
-          || '';
-        
+        const textContent =
+          (typeof msgContent.text === 'string' ? msgContent.text : undefined) || content.text || '';
+
         // Split long messages
         if (textContent.length > 4000) {
           const chunks = this.splitMessage(textContent, 4000);
@@ -564,7 +583,7 @@ export class FeishuChannel extends ChannelBase {
             } else {
               await this.wsClient.sendMessage(chatId, 'chat_id', chunk, 'text');
             }
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise((resolve) => setTimeout(resolve, 200));
           }
         } else {
           if (replyTo) {
@@ -583,21 +602,21 @@ export class FeishuChannel extends ChannelBase {
         for (const chunk of chunks) {
           await this.api.sendMessage(chatId, 'text', { text: chunk }, replyTo);
           // Small delay between chunks
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise((resolve) => setTimeout(resolve, 200));
         }
       } else {
         await this.api.sendMessage(chatId, msgType, msgContent, replyTo);
       }
     }
   }
-  
+
   /**
    * Convert markdown to Feishu interactive card
    */
   private markdownToCard(markdown: string): Record<string, unknown> {
     // Simple markdown to card conversion
     // Feishu cards support a subset of markdown in certain elements
-    
+
     return {
       config: {
         wide_screen_mode: true,
@@ -610,7 +629,7 @@ export class FeishuChannel extends ChannelBase {
       ],
     };
   }
-  
+
   /**
    * Sanitize markdown for Feishu compatibility
    */
@@ -621,18 +640,18 @@ export class FeishuChannel extends ChannelBase {
     // - `code`, ```code block```
     // - > quote
     // - Lists
-    
+
     // Remove unsupported elements
     let sanitized = markdown;
-    
+
     // Limit length
     if (sanitized.length > 10000) {
       sanitized = sanitized.substring(0, 10000) + '\n\n... (内容过长已截断)';
     }
-    
+
     return sanitized;
   }
-  
+
   /**
    * Upload image to Feishu
    */
@@ -643,7 +662,12 @@ export class FeishuChannel extends ChannelBase {
       if (parsed.protocol !== 'https:') {
         throw new Error('Only HTTPS image URLs allowed');
       }
-      if (/^(127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.|0\.)/.test(parsed.hostname)) {
+      if (
+        /^(127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.|0\.|::1$|[fF][cCdD][0-9a-fA-F]{2}:)/.test(
+          parsed.hostname
+        ) ||
+        parsed.hostname === 'localhost'
+      ) {
         throw new Error('Internal URLs not allowed');
       }
       // Download and upload
@@ -654,7 +678,7 @@ export class FeishuChannel extends ChannelBase {
       const buffer = Buffer.from(image.base64, 'base64');
       return await this.api.uploadImage(buffer);
     }
-    
+
     throw new Error('No image data provided');
   }
 }

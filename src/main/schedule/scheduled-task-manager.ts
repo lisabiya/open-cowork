@@ -251,10 +251,18 @@ export class ScheduledTaskManager {
   async runNow(id: string): Promise<ScheduledTask | null> {
     const task = this.store.get(id);
     if (!task) return null;
+    if (this.executingTasks.has(id)) {
+      throw new Error('Task is already executing');
+    }
+    this.executingTasks.add(id);
     const taskToExecute = this.prepareExecution(task);
-    const execution = await this.executeAndRecord(taskToExecute);
-    if (!execution.success) {
-      throw new Error(execution.error ?? 'Scheduled task execution failed');
+    try {
+      const execution = await this.executeAndRecord(taskToExecute);
+      if (!execution.success) {
+        throw new Error(execution.error ?? 'Scheduled task execution failed');
+      }
+    } finally {
+      this.executingTasks.delete(id);
     }
     return this.store.get(id);
   }

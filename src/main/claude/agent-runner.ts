@@ -192,7 +192,7 @@ async function enrichProcessPathForBuild(): Promise<void> {
         execFileSync(shell, ['-l', '-c', 'echo $PATH'], {
           encoding: 'utf-8',
           timeout: 5000,
-          env: { HOME: os.homedir() },
+          env: { ...process.env, HOME: os.homedir() },
         }) as string
       ).trim();
       if (output) {

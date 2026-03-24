@@ -5,7 +5,7 @@ import hljs from 'highlight.js';
 
 // Sanitize highlight.js output - only allow highlight span tags
 const sanitizeHighlight = (html: string): string =>
-  html.replace(/<(?!\/?span\s*(?:class="hljs-[^"]*")?\s*>)[^>]*>/g, (match) =>
+  html.replace(/<(?!\/?span(?:\s+class="hljs-[^"]*")?\s*\/?>)[^>]*>/g, (match) =>
     match.replace(/</g, '&lt;').replace(/>/g, '&gt;')
   );
 

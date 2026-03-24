@@ -5,6 +5,9 @@ import { useAppStore } from '../../store';
 import { shouldUseScreenshotSummary } from '../../utils/tool-result-summary';
 import type { ToolResultContent, ContentBlock, ToolUseContent, Message } from '../../types';
 
+// Only allow safe image MIME types for data: URI rendering
+const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
 interface ToolResultBlockProps {
   block: ToolResultContent;
   allBlocks?: ContentBlock[];
@@ -111,16 +114,18 @@ export const ToolResultBlock = memo(function ToolResultBlock({
           </pre>
           {block.images && block.images.length > 0 && (
             <div className="mt-2 space-y-2">
-              {block.images.map((image, index) => (
-                <div key={index} className="border border-border rounded-lg overflow-hidden">
-                  <img
-                    src={`data:${image.mimeType};base64,${image.data}`}
-                    alt={`Screenshot ${index + 1}`}
-                    className="w-full h-auto"
-                    style={{ maxHeight: '400px', objectFit: 'contain' }}
-                  />
-                </div>
-              ))}
+              {block.images.map((image, index) =>
+                ALLOWED_IMAGE_TYPES.has(image.mimeType) ? (
+                  <div key={index} className="border border-border rounded-lg overflow-hidden">
+                    <img
+                      src={`data:${image.mimeType};base64,${image.data}`}
+                      alt={`Screenshot ${index + 1}`}
+                      className="w-full h-auto"
+                      style={{ maxHeight: '400px', objectFit: 'contain' }}
+                    />
+                  </div>
+                ) : null
+              )}
             </div>
           )}
         </div>

@@ -8,6 +8,9 @@ import { AskUserQuestionBlock } from './AskUserQuestionBlock';
 import { TodoWriteBlock } from './TodoWriteBlock';
 import { getToolIcon, getToolLabel } from './toolHelpers';
 
+// Only allow safe image MIME types for data: URI rendering
+const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
 interface ToolUseBlockProps {
   block: ToolUseContent;
   allBlocks?: ContentBlock[];
@@ -184,8 +187,11 @@ export const ToolUseBlock = memo(function ToolUseBlock({
               {/* Images */}
               {Array.isArray(toolResult.images) &&
                 toolResult.images.map((image, index) =>
-                  image?.mimeType && image?.data ? (
-                    <div key={index} className="mt-2 border border-border rounded-lg overflow-hidden">
+                  image?.mimeType && image?.data && ALLOWED_IMAGE_TYPES.has(image.mimeType) ? (
+                    <div
+                      key={index}
+                      className="mt-2 border border-border rounded-lg overflow-hidden"
+                    >
                       <img
                         src={`data:${image.mimeType};base64,${image.data}`}
                         alt={`Output ${index + 1}`}

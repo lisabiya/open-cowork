@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useIPC } from '../hooks/useIPC';
 import type { SudoPasswordRequest } from '../types';
@@ -11,23 +11,40 @@ interface SudoPasswordDialogProps {
 export function SudoPasswordDialog({ request }: SudoPasswordDialogProps) {
   const { t } = useTranslation();
   const { respondToSudoPassword } = useIPC();
-  const [password, setPassword] = useState('');
+  // Use ref so the password never lives in React state / re-render cycle
+  const passwordRef = useRef<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
+    // Capture ref values for safe use in cleanup
+    const inputEl = inputRef.current;
+    // Clear the password from memory when the dialog unmounts
+    return () => {
+      passwordRef.current = '';
+      if (inputEl) {
+        inputEl.value = '';
+      }
+    };
   }, []);
 
   const handleSubmit = () => {
-    if (!password) return;
-    respondToSudoPassword(request.toolUseId, password);
-    // Clear password from memory immediately after sending
-    setTimeout(() => setPassword(''), 0);
+    const pwd = passwordRef.current;
+    if (!pwd) return;
+    respondToSudoPassword(request.toolUseId, pwd);
+    // Wipe immediately after sending
+    passwordRef.current = '';
+    if (inputRef.current) {
+      inputRef.current.value = '';
+    }
   };
 
   const handleCancel = () => {
     respondToSudoPassword(request.toolUseId, null);
-    setPassword('');
+    passwordRef.current = '';
+    if (inputRef.current) {
+      inputRef.current.value = '';
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -49,12 +66,8 @@ export function SudoPasswordDialog({ request }: SudoPasswordDialogProps) {
           </div>
 
           <div className="flex-1">
-            <h2 className="text-lg font-semibold text-text-primary">
-              {t('sudo.title')}
-            </h2>
-            <p className="text-sm text-text-secondary mt-1">
-              {t('sudo.description')}
-            </p>
+            <h2 className="text-lg font-semibold text-text-primary">{t('sudo.title')}</h2>
+            <p className="text-sm text-text-secondary mt-1">{t('sudo.description')}</p>
           </div>
         </div>
 
@@ -73,37 +86,29 @@ export function SudoPasswordDialog({ request }: SudoPasswordDialogProps) {
           <input
             ref={inputRef}
             type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              passwordRef.current = e.target.value;
+            }}
             onKeyDown={handleKeyDown}
             placeholder={t('sudo.passwordPlaceholder')}
             className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-accent/50"
-            autoComplete="off"
+            autoComplete="new-password"
           />
         </div>
 
         {/* Warning */}
         <div className="mt-3 p-3 bg-warning/10 border border-warning/20 rounded-xl">
-          <p className="text-xs text-warning">
-            {t('sudo.warning')}
-          </p>
+          <p className="text-xs text-warning">{t('sudo.warning')}</p>
         </div>
 
         {/* Actions */}
         <div className="mt-6 flex items-center gap-3">
-          <button
-            onClick={handleCancel}
-            className="flex-1 btn btn-secondary"
-          >
+          <button onClick={handleCancel} className="flex-1 btn btn-secondary">
             <X className="w-4 h-4" />
             {t('sudo.cancel')}
           </button>
 
-          <button
-            onClick={handleSubmit}
-            disabled={!password}
-            className="flex-1 btn btn-primary disabled:opacity-50"
-          >
+          <button onClick={handleSubmit} className="flex-1 btn btn-primary">
             <Play className="w-4 h-4" />
             {t('sudo.execute')}
           </button>

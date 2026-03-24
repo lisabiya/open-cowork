@@ -1,12 +1,8 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useIPC } from '../hooks/useIPC';
 import type { PermissionRequest } from '../types';
-import {
-  Shield,
-  X,
-  Check,
-  AlertTriangle,
-} from 'lucide-react';
+import { Shield, X, Check, AlertTriangle } from 'lucide-react';
 
 interface PermissionDialogProps {
   permission: PermissionRequest;
@@ -15,6 +11,7 @@ interface PermissionDialogProps {
 export function PermissionDialog({ permission }: PermissionDialogProps) {
   const { t } = useTranslation();
   const { respondToPermission } = useIPC();
+  const [pendingAlwaysAllow, setPendingAlwaysAllow] = useState(false);
 
   const getToolDescription = (toolName: string): string => {
     const key = `permission.toolDescriptions.${toolName}`;
@@ -41,16 +38,18 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
       <div className="card w-full max-w-md p-6 m-4 shadow-elevated animate-slide-up">
         {/* Header */}
         <div className="flex items-start gap-4">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
-            isHighRisk ? 'bg-warning/10' : 'bg-accent-muted'
-          }`}>
+          <div
+            className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
+              isHighRisk ? 'bg-warning/10' : 'bg-accent-muted'
+            }`}
+          >
             {isHighRisk ? (
               <AlertTriangle className="w-6 h-6 text-warning" />
             ) : (
               <Shield className="w-6 h-6 text-accent" />
             )}
           </div>
-          
+
           <div className="flex-1">
             <h2 className="text-lg font-semibold text-text-primary">
               {t('permission.permissionRequired')}
@@ -67,7 +66,7 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
             <span className="text-sm font-medium text-text-primary">{t('permission.tool')}</span>
             <span className="font-mono text-accent text-sm">{permission.toolName}</span>
           </div>
-          
+
           <div className="text-sm text-text-secondary">
             <span className="font-medium text-text-primary">{t('permission.input')}</span>
             <pre className="mt-1 text-xs code-block max-h-32 overflow-auto">
@@ -81,9 +80,7 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
           <div className="mt-4 p-3 bg-warning/10 border border-warning/20 rounded-xl">
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-warning">
-                {t('permission.warning')}
-              </p>
+              <p className="text-sm text-warning">{t('permission.warning')}</p>
             </div>
           </div>
         )}
@@ -97,7 +94,7 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
             <X className="w-4 h-4" />
             {t('permission.deny')}
           </button>
-          
+
           <button
             onClick={() => respondToPermission(permission.toolUseId, 'allow')}
             className="flex-1 btn btn-primary"
@@ -108,24 +105,47 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
         </div>
 
         {/* Always Allow option */}
-        <button
-          onClick={() => {
-            const dangerousTools = ['bash', 'write', 'edit', 'execute_command'];
-            const isDangerous = dangerousTools.some(t => permission.toolName?.toLowerCase().includes(t));
-
-            if (isDangerous) {
-              const confirmed = window.confirm(
-                `Are you sure you want to always allow "${permission.toolName}"? This tool can modify your system.`
+        {!pendingAlwaysAllow ? (
+          <button
+            onClick={() => {
+              const dangerousTools = ['bash', 'write', 'edit', 'execute_command'];
+              const isDangerous = dangerousTools.some((tool) =>
+                permission.toolName?.toLowerCase().includes(tool)
               );
-              if (!confirmed) return;
-            }
-
-            respondToPermission(permission.toolUseId, 'allow_always');
-          }}
-          className="w-full mt-2 btn btn-ghost text-sm"
-        >
-          {t('permission.alwaysAllow')}
-        </button>
+              if (isDangerous) {
+                setPendingAlwaysAllow(true);
+              } else {
+                respondToPermission(permission.toolUseId, 'allow_always');
+              }
+            }}
+            className="w-full mt-2 btn btn-ghost text-sm"
+          >
+            {t('permission.alwaysAllow')}
+          </button>
+        ) : (
+          <div className="mt-2 p-3 bg-warning/10 border border-warning/20 rounded-xl">
+            <p className="text-sm text-warning mb-2">
+              {`Are you sure you want to always allow "${permission.toolName}"? This tool can modify your system.`}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingAlwaysAllow(false)}
+                className="flex-1 btn btn-secondary text-sm"
+              >
+                {t('permission.deny')}
+              </button>
+              <button
+                onClick={() => {
+                  setPendingAlwaysAllow(false);
+                  respondToPermission(permission.toolUseId, 'allow_always');
+                }}
+                className="flex-1 btn btn-primary text-sm"
+              >
+                {t('permission.alwaysAllow')}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

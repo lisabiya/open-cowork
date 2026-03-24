@@ -14,11 +14,7 @@ import {
   resolveLocalFilePathFromHref,
 } from '../../utils/markdown-local-link';
 import { normalizeLatexDelimiters } from '../../utils/latex-delimiters';
-import type {
-  ToolUseContent,
-  ToolResultContent,
-  FileAttachmentContent,
-} from '../../types';
+import type { ToolUseContent, ToolResultContent, FileAttachmentContent } from '../../types';
 import { FileText } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -157,19 +153,15 @@ export const ContentBlockView = memo(function ContentBlockView({
           );
         }
 
-        const safeHref =
-          href && /^(?:https?:|mailto:|#|file:)/i.test(href) ? href : undefined;
+        const safeHref = href && /^(?:https?:|mailto:|#)/i.test(href) ? href : undefined;
         return (
           <a
             href={safeHref}
             rel="noreferrer"
             onClick={(event) => {
               event.preventDefault();
-              if (!href) {
-                return;
-              }
-              if (typeof window !== 'undefined' && window.electronAPI?.openExternal) {
-                void window.electronAPI.openExternal(href);
+              if (safeHref && typeof window !== 'undefined' && window.electronAPI?.openExternal) {
+                void window.electronAPI.openExternal(safeHref);
               }
             }}
             className="text-accent hover:text-accent-hover"
@@ -185,14 +177,7 @@ export const ContentBlockView = memo(function ContentBlockView({
           </blockquote>
         );
       },
-      code({
-        className,
-        children,
-        ...props
-      }: {
-        className?: string;
-        children?: React.ReactNode;
-      }) {
+      code({ className, children, ...props }: { className?: string; children?: React.ReactNode }) {
         const match = /language-([\w+#.-]+)/.exec(className || '');
         const isInline = !match;
 
@@ -212,9 +197,7 @@ export const ContentBlockView = memo(function ContentBlockView({
           );
         }
 
-        return (
-          <CodeBlock language={match[1]}>{String(children).replace(/\n$/, '')}</CodeBlock>
-        );
+        return <CodeBlock language={match[1]}>{String(children).replace(/\n$/, '')}</CodeBlock>;
       },
       p({ children }: { children?: React.ReactNode }) {
         return <p className="text-left">{renderChildrenWithFileLinks(children, 'p')}</p>;
@@ -229,13 +212,7 @@ export const ContentBlockView = memo(function ContentBlockView({
           </div>
         );
       },
-      th({
-        children,
-        style,
-      }: {
-        children?: React.ReactNode;
-        style?: React.CSSProperties;
-      }) {
+      th({ children, style }: { children?: React.ReactNode; style?: React.CSSProperties }) {
         return (
           <th
             className="border border-border px-3 py-2 text-sm font-semibold text-text-primary bg-surface-muted"
@@ -245,13 +222,7 @@ export const ContentBlockView = memo(function ContentBlockView({
           </th>
         );
       },
-      td({
-        children,
-        style,
-      }: {
-        children?: React.ReactNode;
-        style?: React.CSSProperties;
-      }) {
+      td({ children, style }: { children?: React.ReactNode; style?: React.CSSProperties }) {
         return (
           <td className="border border-border px-3 py-2 text-sm text-text-primary" style={style}>
             {children}
@@ -366,11 +337,7 @@ export const ContentBlockView = memo(function ContentBlockView({
 
     case 'tool_use':
       return (
-        <ToolUseBlock
-          block={block as ToolUseContent}
-          allBlocks={allBlocks}
-          message={message}
-        />
+        <ToolUseBlock block={block as ToolUseContent} allBlocks={allBlocks} message={message} />
       );
 
     case 'tool_result':

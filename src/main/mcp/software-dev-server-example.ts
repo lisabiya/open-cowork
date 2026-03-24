@@ -1,13 +1,13 @@
 /**
  * Software Development MCP Server - Full Implementation
- * 
+ *
  * This MCP server automates the software development cycle:
  * 1. Code creation/modification based on requirements
  * 2. Test case generation and execution
  * 3. Interactive testing (code + GUI interaction)
  * 4. Requirement updates based on test results
  * 5. Requirement validation/completion verification
- * 
+ *
  * Features:
  * - File system operations (create, read, modify, delete)
  * - Integration with Claude Code for AI-assisted development
@@ -18,10 +18,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { exec, execFile } from 'child_process';
@@ -30,7 +27,6 @@ import { promisify } from 'util';
 // import { log, logError, logWarn } from '../utils/logger';
 // import { configStore } from '../config/config-store';
 import { writeMCPLog } from './mcp-logger';
-
 
 const execFileAsync = promisify(execFile);
 
@@ -105,17 +101,25 @@ interface DockerGUITestConfig {
 async function buildDockerGUITestImage(config: DockerGUITestConfig): Promise<string> {
   // Validate config values to prevent injection in Dockerfile template
   if (!Number.isInteger(config.vncPort) || config.vncPort < 1024 || config.vncPort > 65535) {
-    throw new Error(`Invalid VNC port: ${config.vncPort}. Must be an integer between 1024 and 65535.`);
+    throw new Error(
+      `Invalid VNC port: ${config.vncPort}. Must be an integer between 1024 and 65535.`
+    );
   }
-  if (!Number.isInteger(config.displayNumber) || config.displayNumber < 0 || config.displayNumber > 99) {
-    throw new Error(`Invalid display number: ${config.displayNumber}. Must be an integer between 0 and 99.`);
+  if (
+    !Number.isInteger(config.displayNumber) ||
+    config.displayNumber < 0 ||
+    config.displayNumber > 99
+  ) {
+    throw new Error(
+      `Invalid display number: ${config.displayNumber}. Must be an integer between 0 and 99.`
+    );
   }
 
   const imageName = 'mcp-gui-test';
   const dockerfilePath = path.join(WORKSPACE_DIR, '.mcp-gui-test', 'Dockerfile');
-  
+
   writeMCPLog('[Docker] Building GUI test image...');
-  
+
   // Create Dockerfile
   const dockerfile = `FROM ubuntu:22.04
 
@@ -201,23 +205,30 @@ ENV ENABLE_VNC=false
 
 ENTRYPOINT ["/entrypoint.sh"]
 `;
-  
+
   // Ensure directory exists
   await fs.mkdir(path.dirname(dockerfilePath), { recursive: true });
   await fs.writeFile(dockerfilePath, dockerfile);
-  
+
   // Build image
   try {
-    const { stdout, stderr } = await execFileAsync('docker', [
-      'build', '-t', imageName, '-f', dockerfilePath, path.dirname(dockerfilePath)
-    ], { cwd: WORKSPACE_DIR, maxBuffer: 10 * 1024 * 1024, timeout: 300000 });
+    const { stdout, stderr } = await execFileAsync(
+      'docker',
+      ['build', '-t', imageName, '-f', dockerfilePath, path.dirname(dockerfilePath)],
+      { cwd: WORKSPACE_DIR, maxBuffer: 10 * 1024 * 1024, timeout: 300000 }
+    );
     writeMCPLog('[Docker] Image built successfully');
     writeMCPLog(stdout);
     if (stderr) writeMCPLog(stderr);
     return imageName;
   } catch (error: unknown) {
-    writeMCPLog('[Docker] Failed to build image:', error instanceof Error ? error.message : String(error));
-    throw new Error(`Failed to build Docker image: ${error instanceof Error ? error.message : String(error)}`);
+    writeMCPLog(
+      '[Docker] Failed to build image:',
+      error instanceof Error ? error.message : String(error)
+    );
+    throw new Error(
+      `Failed to build Docker image: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -230,32 +241,37 @@ async function startGUIApplicationInDocker(
   vncPort: number = 5901
 ): Promise<GUIAppInstance> {
   writeMCPLog('[Docker] Starting GUI application in isolated Docker environment...');
-  
+
   const config: DockerGUITestConfig = {
     appFiles: [appFilePath],
     enableVnc,
     vncPort,
     displayNumber: 99,
   };
-  
+
   // Build Docker image
   const imageName = await buildDockerGUITestImage(config);
-  
+
   // Prepare volume mounts - mount entire workspace to preserve file structure
   // This ensures all related files (dependencies, modules, etc.) are available
   const workspacePath = path.resolve(WORKSPACE_DIR);
-  
+
   // Start container
   const containerName = `mcp-gui-test-${Date.now()}`;
   const dockerArgs = [
     'run',
     '--rm',
     '-d',
-    '--name', containerName,
-    '-v', `${workspacePath}:/workspace`,
-    '-w', '/workspace',
-    '-e', `ENABLE_VNC=${enableVnc}`,
-    '-e', `TEST_COMMAND=${startCommand}`,
+    '--name',
+    containerName,
+    '-v',
+    `${workspacePath}:/workspace`,
+    '-w',
+    '/workspace',
+    '-e',
+    `ENABLE_VNC=${enableVnc}`,
+    '-e',
+    `TEST_COMMAND=${startCommand}`,
     ...(enableVnc ? ['-p', `${vncPort}:${vncPort}`] : []),
     imageName,
   ];
@@ -265,7 +281,9 @@ async function startGUIApplicationInDocker(
 
   try {
     const { stdout } = await execFileAsync('docker', dockerArgs, {
-      cwd: WORKSPACE_DIR, maxBuffer: 10 * 1024 * 1024, timeout: 300000
+      cwd: WORKSPACE_DIR,
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 300000,
     });
     const containerId = stdout.trim();
 
@@ -275,31 +293,37 @@ async function startGUIApplicationInDocker(
     }
 
     writeMCPLog(`[Docker] Container started: ${containerId.substring(0, 12)}`);
-    
+
     // Wait for Xvfb and VNC to start
     writeMCPLog('[Docker] Waiting for Xvfb and VNC services to start...');
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
     // Wait a bit more for GUI application to start
     writeMCPLog('[Docker] Waiting for GUI application to initialize...');
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
     // Save diagnostics to .docker-logs directory
     writeMCPLog('[Docker] Collecting and saving diagnostics...');
     try {
       const logFile = await saveDockerDiagnostics(containerId, WORKSPACE_DIR);
       writeMCPLog(`[Docker] Full diagnostics saved to: ${logFile}`);
     } catch (error: unknown) {
-      writeMCPLog(`[Docker] Warning: Failed to save diagnostics: ${error instanceof Error ? error.message : String(error)}`);
+      writeMCPLog(
+        `[Docker] Warning: Failed to save diagnostics: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
-    
+
     if (enableVnc) {
       // Verify VNC server is running
       let vncRunning = false;
       for (let i = 0; i < 10; i++) {
         try {
           const { stdout: checkOutput } = await execFileAsync('docker', [
-            'exec', containerId, 'bash', '-c', 'ps aux | grep x11vnc | grep -v grep'
+            'exec',
+            containerId,
+            'bash',
+            '-c',
+            'ps aux | grep x11vnc | grep -v grep',
           ]);
           if (checkOutput.trim()) {
             vncRunning = true;
@@ -310,23 +334,25 @@ async function startGUIApplicationInDocker(
           // VNC not ready yet
         }
         writeMCPLog(`[Docker] Waiting for VNC server... (${i + 1}/10)`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-      
+
       if (!vncRunning) {
         writeMCPLog('[Docker] Warning: VNC server may not be running. Check container logs.');
       }
-      
+
       // Check port mapping
       try {
         const { stdout: portCheck } = await execFileAsync('docker', [
-          'port', containerId, `${vncPort}/tcp`
+          'port',
+          containerId,
+          `${vncPort}/tcp`,
         ]);
         writeMCPLog(`[Docker] Port mapping: ${portCheck.trim()}`);
       } catch (e) {
         writeMCPLog(`[Docker] Warning: Could not verify port mapping: ${e}`);
       }
-      
+
       writeMCPLog('');
       writeMCPLog('========================================');
       writeMCPLog('VNC Viewer Connection');
@@ -345,7 +371,7 @@ async function startGUIApplicationInDocker(
       writeMCPLog('========================================');
       writeMCPLog('');
     }
-    
+
     const instance: GUIAppInstance = {
       process: null,
       pid: 0,
@@ -355,19 +381,24 @@ async function startGUIApplicationInDocker(
       containerId,
       vncPort: enableVnc ? vncPort : undefined,
     };
-    
+
     return instance;
   } catch (error: unknown) {
-    writeMCPLog('[Docker] Failed to start container:', error instanceof Error ? error.message : String(error));
-    throw new Error(`Failed to start Docker container: ${error instanceof Error ? error.message : String(error)}`);
+    writeMCPLog(
+      '[Docker] Failed to start container:',
+      error instanceof Error ? error.message : String(error)
+    );
+    throw new Error(
+      `Failed to start Docker container: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
 // Helper: Start GUI application (local or Docker)
 async function startGUIApplication(
-  appFilePath: string, 
-  appType: string, 
-  startCommand?: string, 
+  appFilePath: string,
+  appType: string,
+  startCommand?: string,
   waitTime: number = 3,
   useDocker: boolean = true,
   enableVnc: boolean = true,
@@ -378,15 +409,23 @@ async function startGUIApplication(
     if (!startCommand) {
       throw new Error('startCommand is required when using Docker mode');
     }
-    return await startGUIApplicationInDocker(appFilePath, appType, startCommand, enableVnc, vncPort);
+    return await startGUIApplicationInDocker(
+      appFilePath,
+      appType,
+      startCommand,
+      enableVnc,
+      vncPort
+    );
   }
-  
+
   // Otherwise, start locally
-  const fullPath = path.isAbsolute(appFilePath) ? appFilePath : path.join(WORKSPACE_DIR, appFilePath);
-  
+  const fullPath = path.isAbsolute(appFilePath)
+    ? appFilePath
+    : path.join(WORKSPACE_DIR, appFilePath);
+
   let command: string;
   let url: string | undefined;
-  
+
   // Determine start command based on app type
   if (startCommand) {
     command = startCommand;
@@ -412,14 +451,14 @@ async function startGUIApplication(
         command = fullPath;
     }
   }
-  
+
   writeMCPLog(`[GUI] Starting ${appType} application: ${command}`);
-  
+
   // Start the process
   const childProcess = exec(command, {
     cwd: WORKSPACE_DIR,
   });
-  
+
   const instance: GUIAppInstance = {
     process: childProcess,
     pid: childProcess.pid!,
@@ -428,12 +467,12 @@ async function startGUIApplication(
     url,
     isDocker: false,
   };
-  
+
   // Wait for app to be ready
-  await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
-  
+  await new Promise((resolve) => setTimeout(resolve, waitTime * 1000));
+
   writeMCPLog(`[GUI] Application started (PID: ${instance.pid})`);
-  
+
   return instance;
 }
 
@@ -442,11 +481,11 @@ async function stopGUIApplication(instance: GUIAppInstance, force: boolean = fal
   if (!instance) {
     return;
   }
-  
+
   // If Docker container, stop it
   if (instance.isDocker && instance.containerId) {
     writeMCPLog(`[Docker] Stopping container: ${instance.containerId.substring(0, 12)}`);
-    
+
     try {
       if (force) {
         await execFileAsync('docker', ['kill', instance.containerId]);
@@ -455,18 +494,20 @@ async function stopGUIApplication(instance: GUIAppInstance, force: boolean = fal
       }
       writeMCPLog('[Docker] Container stopped successfully');
     } catch (error: unknown) {
-      writeMCPLog(`[Docker] Error stopping container: ${error instanceof Error ? error.message : String(error)}`);
+      writeMCPLog(
+        `[Docker] Error stopping container: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
     return;
   }
-  
+
   // Otherwise, stop local process
   if (!instance.process) {
     return;
   }
-  
+
   writeMCPLog(`[GUI] Stopping application (PID: ${instance.pid})`);
-  
+
   try {
     if (force) {
       if (process.platform === 'win32') {
@@ -481,11 +522,13 @@ async function stopGUIApplication(instance: GUIAppInstance, force: boolean = fal
         instance.process.kill('SIGTERM');
       }
     }
-    
+
     // Wait a bit for cleanup
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   } catch (error: unknown) {
-    writeMCPLog(`[GUI] Error stopping application: ${error instanceof Error ? error.message : String(error)}`);
+    writeMCPLog(
+      `[GUI] Error stopping application: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -496,25 +539,30 @@ async function getDockerContainerLogs(containerId: string, tail: number = 0): Pr
     const { stdout } = await execFileAsync('docker', args);
     return stdout;
   } catch (error: unknown) {
-    writeMCPLog(`[Docker] Error getting logs: ${error instanceof Error ? error.message : String(error)}`);
+    writeMCPLog(
+      `[Docker] Error getting logs: ${error instanceof Error ? error.message : String(error)}`
+    );
     return `Error getting logs: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
 // Helper: Save Docker container logs and diagnostics to file
-async function saveDockerDiagnostics(containerId: string, outputDir: string = WORKSPACE_DIR): Promise<string> {
+async function saveDockerDiagnostics(
+  containerId: string,
+  outputDir: string = WORKSPACE_DIR
+): Promise<string> {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const logDir = path.join(outputDir, '.docker-logs');
   await fs.mkdir(logDir, { recursive: true });
-  
+
   const logFile = path.join(logDir, `container-${containerId.substring(0, 12)}-${timestamp}.log`);
-  
+
   let diagnostics = `========================================\n`;
   diagnostics += `Docker Container Diagnostics\n`;
   diagnostics += `Container ID: ${containerId}\n`;
   diagnostics += `Timestamp: ${new Date().toISOString()}\n`;
   diagnostics += `========================================\n\n`;
-  
+
   // 1. Container logs
   diagnostics += `--- Container Logs ---\n`;
   try {
@@ -524,13 +572,11 @@ async function saveDockerDiagnostics(containerId: string, outputDir: string = WO
     diagnostics += `Error getting logs: ${error instanceof Error ? error.message : String(error)}\n`;
   }
   diagnostics += `\n\n`;
-  
+
   // 2. Check running processes
   diagnostics += `--- Running Processes ---\n`;
   try {
-    const { stdout } = await execFileAsync('docker', [
-      'exec', containerId, 'bash', '-c', 'ps aux'
-    ]);
+    const { stdout } = await execFileAsync('docker', ['exec', containerId, 'bash', '-c', 'ps aux']);
     diagnostics += stdout;
   } catch (error: unknown) {
     diagnostics += `Error checking processes: ${error instanceof Error ? error.message : String(error)}\n`;
@@ -541,7 +587,11 @@ async function saveDockerDiagnostics(containerId: string, outputDir: string = WO
   diagnostics += `--- Xvfb Status ---\n`;
   try {
     const { stdout } = await execFileAsync('docker', [
-      'exec', containerId, 'bash', '-c', 'ps aux | grep Xvfb | grep -v grep'
+      'exec',
+      containerId,
+      'bash',
+      '-c',
+      'ps aux | grep Xvfb | grep -v grep',
     ]);
     diagnostics += stdout || 'Xvfb not running\n';
   } catch (error: unknown) {
@@ -553,20 +603,27 @@ async function saveDockerDiagnostics(containerId: string, outputDir: string = WO
   diagnostics += `--- VNC Server Status ---\n`;
   try {
     const { stdout } = await execFileAsync('docker', [
-      'exec', containerId, 'bash', '-c', 'ps aux | grep x11vnc | grep -v grep'
+      'exec',
+      containerId,
+      'bash',
+      '-c',
+      'ps aux | grep x11vnc | grep -v grep',
     ]);
     diagnostics += stdout || 'VNC server not running\n';
   } catch (error: unknown) {
     diagnostics += `Error checking VNC: ${error instanceof Error ? error.message : String(error)}\n`;
   }
   diagnostics += `\n\n`;
-  
+
   // 5. Check X11 windows
   diagnostics += `--- X11 Windows ---\n`;
   try {
     const { stdout } = await execFileAsync('docker', [
-      'exec', containerId, 'bash', '-c',
-      'DISPLAY=:99 xwininfo -root -tree 2>&1 || echo \'xwininfo not available or no windows\''
+      'exec',
+      containerId,
+      'bash',
+      '-c',
+      "DISPLAY=:99 xwininfo -root -tree 2>&1 || echo 'xwininfo not available or no windows'",
     ]);
     diagnostics += stdout;
   } catch (error: unknown) {
@@ -578,15 +635,18 @@ async function saveDockerDiagnostics(containerId: string, outputDir: string = WO
   diagnostics += `--- Environment Variables ---\n`;
   try {
     const { stdout } = await execFileAsync('docker', [
-      'exec', containerId, 'bash', '-c',
-      'env | grep -E \'(DISPLAY|ENABLE_VNC|TEST_COMMAND)\''
+      'exec',
+      containerId,
+      'bash',
+      '-c',
+      "env | grep -E '(DISPLAY|ENABLE_VNC|TEST_COMMAND)'",
     ]);
     diagnostics += stdout || 'No relevant environment variables found\n';
   } catch (error: unknown) {
     diagnostics += `Error checking environment: ${error instanceof Error ? error.message : String(error)}\n`;
   }
   diagnostics += `\n\n`;
-  
+
   // 7. Check VNC log
   diagnostics += `--- VNC Server Log ---\n`;
   try {
@@ -599,7 +659,7 @@ async function saveDockerDiagnostics(containerId: string, outputDir: string = WO
     diagnostics += `Error reading VNC log: ${error instanceof Error ? error.message : String(error)}\n`;
   }
   diagnostics += `\n\n`;
-  
+
   // 8. Check application log
   diagnostics += `--- Application Log ---\n`;
   try {
@@ -612,7 +672,7 @@ async function saveDockerDiagnostics(containerId: string, outputDir: string = WO
     diagnostics += `Error reading application log: ${error instanceof Error ? error.message : String(error)}\n`;
   }
   diagnostics += `\n\n`;
-  
+
   // 9. Check if application is running
   diagnostics += `--- Application Process Check ---\n`;
   try {
@@ -625,7 +685,7 @@ async function saveDockerDiagnostics(containerId: string, outputDir: string = WO
     diagnostics += `Error checking application: ${error instanceof Error ? error.message : String(error)}\n`;
   }
   diagnostics += `\n\n`;
-  
+
   // 10. Network connectivity
   diagnostics += `--- Network Status ---\n`;
   try {
@@ -638,11 +698,11 @@ async function saveDockerDiagnostics(containerId: string, outputDir: string = WO
     diagnostics += `Error checking network: ${error instanceof Error ? error.message : String(error)}\n`;
   }
   diagnostics += `\n========================================\n`;
-  
+
   // Save to file
   await fs.writeFile(logFile, diagnostics, 'utf-8');
   writeMCPLog(`[Docker] Diagnostics saved to: ${logFile}`);
-  
+
   return logFile;
 }
 
@@ -659,18 +719,20 @@ async function saveDockerDiagnostics(containerId: string, outputDir: string = WO
 async function executeCliclick(command: string): Promise<{ stdout: string; stderr: string }> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const platform = require('os').platform();
-  
+
   if (platform !== 'darwin') {
-    throw new Error('cliclick is only available on macOS. Use xdotool on Linux or other tools on Windows.');
+    throw new Error(
+      'cliclick is only available on macOS. Use xdotool on Linux or other tools on Windows.'
+    );
   }
-  
+
   // Check if cliclick is installed
   try {
     await executeCommand('which cliclick');
   } catch {
     throw new Error('cliclick is not installed. Install it with: brew install cliclick');
   }
-  
+
   return await executeCommand(`cliclick ${command}`);
 }
 
@@ -683,25 +745,26 @@ async function takeScreenshot(outputPath: string): Promise<string> {
     const containerScreenshotPath = `/tmp/screenshot_${Date.now()}.png`;
     try {
       // Wait a moment for GUI to update (important for capturing latest state)
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
       // Delete old screenshot if exists to avoid cache issues
       await executeCommand(
         `docker exec ${currentGUIApp.containerId} bash -c "rm -f ${containerScreenshotPath}"`,
         WORKSPACE_DIR
       ).catch(() => {}); // Ignore error if file doesn't exist
-      
+
       // Take screenshot inside container with overwrite flag
       await executeCommand(
         `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 scrot -o ${containerScreenshotPath}"`,
         WORKSPACE_DIR
       );
-      
+
       // Wait for screenshot file to exist in container
       writeMCPLog('[Screenshot] Waiting for screenshot file to be ready...');
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       let fileExists = false;
-      for (let i = 0; i < 20; i++) { // Max 2 seconds (20 * 100ms)
+      for (let i = 0; i < 20; i++) {
+        // Max 2 seconds (20 * 100ms)
         try {
           await executeCommand(
             `docker exec ${currentGUIApp.containerId} bash -c "test -f ${containerScreenshotPath}"`,
@@ -713,25 +776,31 @@ async function takeScreenshot(outputPath: string): Promise<string> {
         } catch (e) {
           // File not ready yet
         }
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      
+
       if (!fileExists) {
-        writeMCPLog('[Screenshot] Warning: Screenshot file verification timed out, proceeding anyway...');
+        writeMCPLog(
+          '[Screenshot] Warning: Screenshot file verification timed out, proceeding anyway...'
+        );
       }
-      
+
       // Copy screenshot from container to host
       await executeCommand(
         `docker cp ${currentGUIApp.containerId}:${containerScreenshotPath} "${outputPath}"`,
         WORKSPACE_DIR
       );
-      
+
       writeMCPLog(`[Screenshot] Screenshot copied from container to ${outputPath}`);
-      
+
       return outputPath;
     } catch (error: unknown) {
-      writeMCPLog(`[Screenshot] Failed to take screenshot from container: ${error instanceof Error ? error.message : String(error)}`);
-      throw new Error(`Failed to take screenshot from Docker container: ${error instanceof Error ? error.message : String(error)}`);
+      writeMCPLog(
+        `[Screenshot] Failed to take screenshot from container: ${error instanceof Error ? error.message : String(error)}`
+      );
+      throw new Error(
+        `Failed to take screenshot from Docker container: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -748,7 +817,7 @@ async function takeScreenshot(outputPath: string): Promise<string> {
     // Linux
     command = `import -window root "${outputPath}"`;
   }
-  
+
   await executeCommand(command);
   return outputPath;
 }
@@ -764,7 +833,9 @@ async function callVisionAPI(
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
   const openAIApiKey = process.env.OPENAI_API_KEY;
   const apiKey = anthropicApiKey || openAIApiKey;
-  const hasOpenAIConfig = Boolean(process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL || process.env.OPENAI_MODEL);
+  const hasOpenAIConfig = Boolean(
+    process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL || process.env.OPENAI_MODEL
+  );
   const baseUrl = process.env.ANTHROPIC_BASE_URL || process.env.OPENAI_BASE_URL;
   const model =
     process.env.CLAUDE_MODEL ||
@@ -775,19 +846,20 @@ async function callVisionAPI(
   // const enableThinking = configStore.get('enableThinking') ?? false;
   // writeMCPLog(`[Vision] configStore: ${JSON.stringify(configStore.getAll())}`);
   // writeMCPLog(`[Vision] enableThinking: ${enableThinking}`);
-  
+
   if (!apiKey) {
     throw new Error('API key not configured. Please configure it in Settings.');
   }
 
   // console.error(`[Vision] Using model: ${model} (baseURL: ${baseUrl || 'default'}), enableThinking: ${enableThinking}`);
-  
+
   // Log the prompt
   writeMCPLog(prompt, 'PROMPT');
-  
+
   // Check if using OpenRouter
-  const isOpenRouter = !!baseUrl && (baseUrl.includes('openrouter.ai') || baseUrl.includes('openrouter'));
-  
+  const isOpenRouter =
+    !!baseUrl && (baseUrl.includes('openrouter.ai') || baseUrl.includes('openrouter'));
+
   // Check if model/config is OpenAI-compatible (Gemini, GPT, etc.)
   const isOpenAICompatible =
     hasOpenAIConfig ||
@@ -796,14 +868,14 @@ async function callVisionAPI(
     model.includes('openai/') ||
     isOpenRouter ||
     (baseUrl ? baseUrl.includes('api.openai.com') : false);
-  
+
   if (isOpenAICompatible) {
     // Use OpenAI-compatible API format (for Gemini, GPT, etc. via OpenRouter)
     const openAIBaseUrl = baseUrl || 'https://api.openai.com/v1';
-    const openAIUrl = openAIBaseUrl.endsWith('/v1') 
+    const openAIUrl = openAIBaseUrl.endsWith('/v1')
       ? `${openAIBaseUrl}/chat/completions`
       : `${openAIBaseUrl}/v1/chat/completions`;
-    
+
     // Use Node.js built-in https module for better compatibility
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const https = require('https');
@@ -811,11 +883,11 @@ async function callVisionAPI(
     const http = require('http');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const url = require('url');
-    
+
     const urlObj = new url.URL(openAIUrl);
     const isHttps = urlObj.protocol === 'https:';
     const httpModule = isHttps ? https : http;
-    
+
     // Build request body with optional reasoning parameter for OpenRouter
     const requestBodyObj: Record<string, unknown> = {
       model: model,
@@ -838,26 +910,26 @@ async function callVisionAPI(
       ],
       max_tokens: maxTokens,
     };
-    
+
     // For OpenRouter: control reasoning/thinking based on settings
     // When enableThinking is false, set effort to 'none' to disable extended thinking
     // if (isOpenRouter && !enableThinking) {
     //   requestBodyObj.reasoning = { effort: 'none' };
     // }
-    
+
     const requestBody = JSON.stringify(requestBodyObj);
-    
+
     const headers: Record<string, string | number> = {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Length': Buffer.byteLength(requestBody),
     };
-    
+
     if (isOpenRouter) {
       headers['HTTP-Referer'] = 'https://github.com/OpenCoworkAI/open-cowork';
       headers['X-Title'] = 'Open Cowork';
     }
-    
+
     return new Promise<string>((resolve, reject) => {
       const options = {
         hostname: urlObj.hostname,
@@ -866,38 +938,44 @@ async function callVisionAPI(
         method: 'POST',
         headers: headers,
       };
-      
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const req = httpModule.request(options, (res: any) => {
         let data = '';
-        
+
         res.on('data', (chunk: Buffer) => {
           data += chunk.toString();
         });
-        
+
         res.on('end', () => {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             try {
               const jsonData = JSON.parse(data);
               const responseContent = jsonData.choices[0]?.message?.content || '';
-              
+
               // Log the response
               writeMCPLog(JSON.stringify(jsonData), 'RESPONSE');
-              
+
               resolve(responseContent);
             } catch (e: unknown) {
-              reject(new Error(`Failed to parse API response: ${e instanceof Error ? e.message : String(e)}`));
+              reject(
+                new Error(
+                  `Failed to parse API response: ${e instanceof Error ? e.message : String(e)}`
+                )
+              );
             }
           } else {
-            reject(new Error(`API request failed: ${res.statusCode} ${res.statusMessage} - ${data}`));
+            reject(
+              new Error(`API request failed: ${res.statusCode} ${res.statusMessage} - ${data}`)
+            );
           }
         });
       });
-      
+
       req.on('error', (error: Error) => {
         reject(new Error(`API request error: ${error.message}`));
       });
-      
+
       req.write(requestBody);
       req.end();
     });
@@ -909,7 +987,7 @@ async function callVisionAPI(
       apiKey: apiKey,
       baseURL: baseUrl,
     });
-    
+
     const message = await anthropic.messages.create({
       model: model,
       max_tokens: maxTokens,
@@ -933,12 +1011,12 @@ async function callVisionAPI(
         },
       ],
     });
-    
+
     const responseContent = message.content[0].type === 'text' ? message.content[0].text : '';
-    
+
     // Log the response
     writeMCPLog(responseContent, 'RESPONSE');
-    
+
     return responseContent;
   }
 }
@@ -948,18 +1026,20 @@ async function getScreenDimensions(): Promise<{ width: number; height: number }>
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const platform = require('os').platform();
-    
+
     // For Docker mode, use the configured Xvfb resolution
     if (currentGUIApp?.isDocker) {
       // Default Xvfb resolution is 1024x768
       writeMCPLog('[Vision] Using Docker Xvfb resolution: 1024x768');
       return { width: 1024, height: 768 };
     }
-    
+
     if (platform === 'darwin') {
       // macOS: Use system_profiler to get display resolution
       try {
-        const { stdout } = await executeCommand(`system_profiler SPDisplaysDataType | grep Resolution`);
+        const { stdout } = await executeCommand(
+          `system_profiler SPDisplaysDataType | grep Resolution`
+        );
         const match = stdout.match(/(\d+)\s*x\s*(\d+)/);
         if (match) {
           return { width: parseInt(match[1]), height: parseInt(match[2]) };
@@ -987,12 +1067,14 @@ async function getScreenDimensions(): Promise<{ width: number; height: number }>
         }
       }
     }
-    
+
     // Fallback: common default
     writeMCPLog('[Vision] Using default screen resolution: 1920x1080');
     return { width: 1920, height: 1080 };
   } catch (error: unknown) {
-    writeMCPLog(`[Vision] Error getting screen dimensions: ${error instanceof Error ? error.message : String(error)}`);
+    writeMCPLog(
+      `[Vision] Error getting screen dimensions: ${error instanceof Error ? error.message : String(error)}`
+    );
     return { width: 1920, height: 1080 };
   }
 }
@@ -1003,12 +1085,12 @@ async function getImageDimensions(imagePath: string): Promise<{ width: number; h
     // Use sips on macOS or identify on Linux to get image dimensions
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const platform = require('os').platform();
-    
+
     if (platform === 'darwin') {
       const { stdout } = await executeCommand(`sips -g pixelWidth -g pixelHeight "${imagePath}"`);
       const widthMatch = stdout.match(/pixelWidth:\s*(\d+)/);
       const heightMatch = stdout.match(/pixelHeight:\s*(\d+)/);
-      
+
       if (widthMatch && heightMatch) {
         return {
           width: parseInt(widthMatch[1]),
@@ -1027,57 +1109,71 @@ async function getImageDimensions(imagePath: string): Promise<{ width: number; h
         // Fallback: read PNG header manually
       }
     }
-    
+
     // Fallback: read PNG dimensions from file header
     const buffer = await fs.readFile(imagePath);
-    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
       // PNG file
       const width = buffer.readUInt32BE(16);
       const height = buffer.readUInt32BE(20);
       return { width, height };
     }
-    
+
     throw new Error('Could not determine image dimensions');
   } catch (error: unknown) {
-    writeMCPLog(`[Vision] Error getting image dimensions: ${error instanceof Error ? error.message : String(error)}`);
+    writeMCPLog(
+      `[Vision] Error getting image dimensions: ${error instanceof Error ? error.message : String(error)}`
+    );
     // Return screen dimensions as fallback
     return await getScreenDimensions();
   }
 }
 
 // Helper: Analyze and build screen context (comprehensive UI understanding)
-async function analyzeAndBuildScreenContext(screenshotPath: string, forceUpdate: boolean = false): Promise<ScreenContext> {
+async function analyzeAndBuildScreenContext(
+  screenshotPath: string,
+  forceUpdate: boolean = false
+): Promise<ScreenContext> {
   try {
     // Check if we can reuse existing context
-    if (!forceUpdate && currentScreenContext && currentScreenContext.lastScreenshot === screenshotPath) {
+    if (
+      !forceUpdate &&
+      currentScreenContext &&
+      currentScreenContext.lastScreenshot === screenshotPath
+    ) {
       const timeSinceUpdate = Date.now() - currentScreenContext.lastUpdated.getTime();
-      if (timeSinceUpdate < 5000) { // Reuse if less than 5 seconds old
+      if (timeSinceUpdate < 5000) {
+        // Reuse if less than 5 seconds old
         writeMCPLog('[Vision] Reusing existing screen context (recent)');
         return currentScreenContext;
       }
     }
-    
+
     // Get screen dimensions
     const screenDims = await getScreenDimensions();
     const imageDims = await getImageDimensions(screenshotPath);
-    
-    writeMCPLog(`[Vision] Screen: ${screenDims.width}x${screenDims.height}, Image: ${imageDims.width}x${imageDims.height}`);
-    
+
+    writeMCPLog(
+      `[Vision] Screen: ${screenDims.width}x${screenDims.height}, Image: ${imageDims.width}x${imageDims.height}`
+    );
+
     // Read screenshot
     const imageBuffer = await fs.readFile(screenshotPath);
     const base64Image = imageBuffer.toString('base64');
-    
+
     // Build comprehensive analysis prompt
-    const previousContext = currentScreenContext ? `
+    const previousContext = currentScreenContext
+      ? `
 
 **PREVIOUS SCREEN ANALYSIS:**
 ${currentScreenContext.lastAnalysis}
 
 **PREVIOUS ELEMENTS:**
-${currentScreenContext.elements.map(el => `- ${el.description} at (${el.position.x}, ${el.position.y})`).join('\n')}
+${currentScreenContext.elements.map((el) => `- ${el.description} at (${el.position.x}, ${el.position.y})`).join('\n')}
 
-Please UPDATE this analysis based on any changes you observe.` : '';
-    
+Please UPDATE this analysis based on any changes you observe.`
+      : '';
+
     const prompt = `You are analyzing a GUI screenshot to build a comprehensive understanding of the interface.
 
 **SCREEN INFORMATION:**
@@ -1119,22 +1215,22 @@ Provide a DETAILED analysis of this GUI screenshot, including:
 }
 
 Be PRECISE with coordinates. Measure carefully from the top-left corner.`;
-    
+
     const responseText = await callVisionAPI(base64Image, prompt, 4096);
-    
+
     // Parse response
     let jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       const codeBlockMatch = responseText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
       if (codeBlockMatch) jsonMatch = [codeBlockMatch[1]];
     }
-    
+
     if (!jsonMatch) {
       throw new Error('Failed to parse screen context response');
     }
-    
+
     const analysis = JSON.parse(jsonMatch[0]);
-    
+
     // Build screen context
     const context: ScreenContext = {
       screenWidth: screenDims.width,
@@ -1144,32 +1240,37 @@ Be PRECISE with coordinates. Measure carefully from the top-left corner.`;
       elements: analysis.elements || [],
       lastUpdated: new Date(),
     };
-    
+
     currentScreenContext = context;
-    
+
     writeMCPLog(`[Vision] Screen context built: ${context.elements.length} elements identified`);
     writeMCPLog(`[Vision] Layout: ${analysis.layout_structure}`);
-    
+
     return context;
   } catch (error: unknown) {
-    writeMCPLog(`[Vision] Error building screen context: ${error instanceof Error ? error.message : String(error)}`);
+    writeMCPLog(
+      `[Vision] Error building screen context: ${error instanceof Error ? error.message : String(error)}`
+    );
     throw error;
   }
 }
 
 // Helper: Use vision model to analyze screenshot and find element coordinates (with context)
-async function analyzeScreenshotWithVision(screenshotPath: string, elementDescription: string): Promise<{ x: number; y: number; confidence: number }> {
+async function analyzeScreenshotWithVision(
+  screenshotPath: string,
+  elementDescription: string
+): Promise<{ x: number; y: number; confidence: number }> {
   // This function uses vision capabilities to locate UI elements
   // The screenshot is analyzed and coordinates are returned
-  
+
   try {
     // First, ensure we have up-to-date screen context
     const context = await analyzeAndBuildScreenContext(screenshotPath, false);
-    
+
     // Read screenshot as base64
     const imageBuffer = await fs.readFile(screenshotPath);
     const base64Image = imageBuffer.toString('base64');
-    
+
     // Build context-aware prompt
     const contextInfo = `
 **SCREEN CONTEXT:**
@@ -1177,11 +1278,15 @@ async function analyzeScreenshotWithVision(screenshotPath: string, elementDescri
 - Overall layout: ${context.lastAnalysis}
 
 **KNOWN ELEMENTS ON SCREEN:**
-${context.elements.slice(0, 20).map(el => 
-  `- ${el.description} (${el.type}) at position (${el.position.x}, ${el.position.y}), size ${el.position.width}x${el.position.height}`
-).join('\n')}
+${context.elements
+  .slice(0, 20)
+  .map(
+    (el) =>
+      `- ${el.description} (${el.type}) at position (${el.position.x}, ${el.position.y}), size ${el.position.width}x${el.position.height}`
+  )
+  .join('\n')}
 ${context.elements.length > 20 ? `... and ${context.elements.length - 20} more elements` : ''}`;
-    
+
     const prompt = `Analyze this GUI screenshot and locate the following element: "${elementDescription}"
 
 ${contextInfo}
@@ -1218,41 +1323,49 @@ Find the element "${elementDescription}" and provide its EXACT CENTER coordinate
 If you cannot find the element, set confidence to 0.`;
 
     writeMCPLog(`[analyzeScreenshotWithVision] Prompt: ${prompt}`);
-    
+
     const responseText = await callVisionAPI(base64Image, prompt, 2048);
-    
+
     // Parse the response
     let jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       const codeBlockMatch = responseText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
       if (codeBlockMatch) jsonMatch = [codeBlockMatch[1]];
     }
-    
+
     if (!jsonMatch) {
       writeMCPLog(`[Vision] Failed to parse response: ${responseText}`);
       throw new Error('Failed to parse vision model response');
     }
-    
+
     const result = JSON.parse(jsonMatch[0]);
-    
+
     // Validate and clamp coordinates
     result.x = Math.max(0, Math.min(context.screenWidth, result.x));
     result.y = Math.max(0, Math.min(context.screenHeight, result.y));
-    
-    writeMCPLog(`[Vision] Found element "${elementDescription}" at (${result.x}, ${result.y}) with ${result.confidence}% confidence`);
+
+    writeMCPLog(
+      `[Vision] Found element "${elementDescription}" at (${result.x}, ${result.y}) with ${result.confidence}% confidence`
+    );
     writeMCPLog(`[Vision] Reasoning: ${result.reasoning}`);
     if (result.element_bounds) {
-      writeMCPLog(`[Vision] Bounds: [${result.element_bounds.left}, ${result.element_bounds.top}] to [${result.element_bounds.right}, ${result.element_bounds.bottom}]`);
+      writeMCPLog(
+        `[Vision] Bounds: [${result.element_bounds.left}, ${result.element_bounds.top}] to [${result.element_bounds.right}, ${result.element_bounds.bottom}]`
+      );
     }
-    
+
     return {
       x: Math.round(result.x),
       y: Math.round(result.y),
       confidence: result.confidence,
     };
   } catch (error: unknown) {
-    writeMCPLog(`[Vision] Error analyzing screenshot: ${error instanceof Error ? error.message : String(error)}`);
-    throw new Error(`Vision analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+    writeMCPLog(
+      `[Vision] Error analyzing screenshot: ${error instanceof Error ? error.message : String(error)}`
+    );
+    throw new Error(
+      `Vision analysis failed: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -1260,40 +1373,73 @@ If you cannot find the element, set confidence to 0.`;
 async function focusApplicationWindow(appName?: string): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const platform = require('os').platform();
-  
-  writeMCPLog(`[GUI] Attempting to bring window to front (platform: ${platform}, appName: ${appName || 'auto-detect'})`);
-  
+
+  writeMCPLog(
+    `[GUI] Attempting to bring window to front (platform: ${platform}, appName: ${appName || 'auto-detect'})`
+  );
+
   try {
     if (platform === 'darwin') {
-      // macOS: Use AppleScript to bring window to front
+      // macOS: Use AppleScript via osascript (no shell interpolation)
       writeMCPLog('[GUI] Using macOS AppleScript to focus window...');
-      
+
       if (appName) {
-        const { stdout, stderr } = await executeCommand(`osascript -e 'tell application "${appName}" to activate'`);
+        const { stdout, stderr } = await execFileAsync(
+          '/usr/bin/osascript',
+          ['-e', `tell application "${appName}" to activate`],
+          { timeout: 10000 }
+        );
         writeMCPLog(`[GUI] AppleScript result - stdout: ${stdout}, stderr: ${stderr}`);
       } else {
         // Try multiple approaches to find and focus Python windows
         try {
           // Approach 1: Find process by name containing "Python"
-          const { stdout, stderr } = await executeCommand(`osascript -e 'tell application "System Events" to set frontmost of first process whose name contains "Python" to true'`);
+          const { stdout, stderr } = await execFileAsync(
+            '/usr/bin/osascript',
+            [
+              '-e',
+              'tell application "System Events" to set frontmost of first process whose name contains "Python" to true',
+            ],
+            { timeout: 10000 }
+          );
           writeMCPLog(`[GUI] AppleScript (Python) result - stdout: ${stdout}, stderr: ${stderr}`);
         } catch (err1: unknown) {
-          writeMCPLog(`[GUI] Failed to focus Python process: ${err1 instanceof Error ? err1.message : String(err1)}`);
-          
+          writeMCPLog(
+            `[GUI] Failed to focus Python process: ${err1 instanceof Error ? err1.message : String(err1)}`
+          );
+
           // Approach 2: Try to find any Python-related window
           try {
-            await executeCommand(`osascript -e 'tell application "System Events" to set frontmost of first process whose unix id is greater than 0 and name contains "python" to true'`);
+            await execFileAsync(
+              '/usr/bin/osascript',
+              [
+                '-e',
+                'tell application "System Events" to set frontmost of first process whose unix id is greater than 0 and name contains "python" to true',
+              ],
+              { timeout: 10000 }
+            );
             writeMCPLog('[GUI] Successfully focused python process (lowercase)');
           } catch (err2: unknown) {
-            writeMCPLog(`[GUI] Failed to focus python process: ${err2 instanceof Error ? err2.message : String(err2)}`);
-            
+            writeMCPLog(
+              `[GUI] Failed to focus python process: ${err2 instanceof Error ? err2.message : String(err2)}`
+            );
+
             // Approach 3: Get the PID and focus by PID
             if (currentGUIApp && currentGUIApp.pid) {
               try {
-                await executeCommand(`osascript -e 'tell application "System Events" to set frontmost of first process whose unix id is ${currentGUIApp.pid} to true'`);
+                await execFileAsync(
+                  '/usr/bin/osascript',
+                  [
+                    '-e',
+                    `tell application "System Events" to set frontmost of first process whose unix id is ${currentGUIApp.pid} to true`,
+                  ],
+                  { timeout: 10000 }
+                );
                 writeMCPLog(`[GUI] Successfully focused process by PID: ${currentGUIApp.pid}`);
               } catch (err3: unknown) {
-                writeMCPLog(`[GUI] Failed to focus by PID: ${err3 instanceof Error ? err3.message : String(err3)}`);
+                writeMCPLog(
+                  `[GUI] Failed to focus by PID: ${err3 instanceof Error ? err3.message : String(err3)}`
+                );
               }
             }
           }
@@ -1302,40 +1448,61 @@ async function focusApplicationWindow(appName?: string): Promise<void> {
     } else if (platform === 'win32') {
       // Windows: Use PowerShell to bring window to front
       writeMCPLog('[GUI] Using Windows PowerShell to focus window...');
-      
-      const script = appName 
+
+      const script = appName
         ? `Add-Type @"\nusing System;\nusing System.Runtime.InteropServices;\npublic class Win32 {\n  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);\n  [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);\n}\n"@; $hwnd = [Win32]::FindWindow($null, "${appName}"); [Win32]::SetForegroundWindow($hwnd)`
         : `Add-Type @"\nusing System;\nusing System.Runtime.InteropServices;\npublic class Win32 {\n  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();\n  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);\n}\n"@; $hwnd = [Win32]::GetForegroundWindow(); [Win32]::SetForegroundWindow($hwnd)`;
-      
-      const { stdout, stderr } = await executeCommand(`powershell -Command "${script}"`);
+
+      const { stdout, stderr } = await execFileAsync('powershell', ['-Command', script], {
+        timeout: 10000,
+      });
       writeMCPLog(`[GUI] PowerShell result - stdout: ${stdout}, stderr: ${stderr}`);
     } else {
-      // Linux: Use xdotool
+      // Linux: Use xdotool (safe: arguments passed as array, no shell)
       writeMCPLog('[GUI] Using Linux xdotool to focus window...');
-      
+
       try {
         if (appName) {
-          const { stdout, stderr } = await executeCommand(`xdotool search --name "${appName}" windowactivate`);
+          const { stdout, stderr } = await execFileAsync(
+            'xdotool',
+            ['search', '--name', appName, 'windowactivate'],
+            { timeout: 10000 }
+          );
           writeMCPLog(`[GUI] xdotool result - stdout: ${stdout}, stderr: ${stderr}`);
         } else {
-          const { stdout, stderr } = await executeCommand(`xdotool search --class python windowactivate`);
+          const { stdout, stderr } = await execFileAsync(
+            'xdotool',
+            ['search', '--class', 'python', 'windowactivate'],
+            { timeout: 10000 }
+          );
           writeMCPLog(`[GUI] xdotool result - stdout: ${stdout}, stderr: ${stderr}`);
         }
       } catch (err: unknown) {
-        writeMCPLog(`[GUI] xdotool not available or failed: ${err instanceof Error ? err.message : String(err)}`);
+        writeMCPLog(
+          `[GUI] xdotool not available or failed: ${err instanceof Error ? err.message : String(err)}`
+        );
         writeMCPLog('[GUI] Please install xdotool: sudo apt-get install xdotool');
       }
     }
-    
-    writeMCPLog('[GUI] ✓ Window focus command executed successfully');
+
+    writeMCPLog('[GUI] Window focus command executed successfully');
   } catch (error: unknown) {
-    writeMCPLog(`[GUI] ✗ Failed to focus window: ${error instanceof Error ? error.message : String(error)}`);
-    writeMCPLog('[GUI] Window may still be in background - screenshots might capture wrong content');
+    writeMCPLog(
+      `[GUI] Failed to focus window: ${error instanceof Error ? error.message : String(error)}`
+    );
+    writeMCPLog(
+      '[GUI] Window may still be in background - screenshots might capture wrong content'
+    );
   }
 }
 
 // Helper: Execute GUI interaction with vision-based element location (using cliclick)
-async function executeGUIInteractionWithVision(action: string, elementDescription: string, value?: string, _timeout: number = 5000): Promise<Record<string, unknown>> {
+async function executeGUIInteractionWithVision(
+  action: string,
+  elementDescription: string,
+  value?: string,
+  _timeout: number = 5000
+): Promise<Record<string, unknown>> {
   if (!currentGUIApp) {
     throw new Error('No GUI application is running');
   }
@@ -1350,17 +1517,17 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
       writeMCPLog('[Vision] Step 0: Bringing window to front...');
       await focusApplicationWindow();
       writeMCPLog('[Vision] Waiting 1 second for window to come to front...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    
+
     // Step 1: Take screenshot
     writeMCPLog('[Vision] Step 1: Taking screenshot...');
     await takeScreenshot(screenshotPath);
     writeMCPLog(`[Vision] Screenshot saved to ${screenshotPath}`);
-    
+
     // Step 2: Analyze with vision model to find element
     const coords = await analyzeScreenshotWithVision(screenshotPath, elementDescription);
-    
+
     if (coords.confidence < 50) {
       return {
         success: false,
@@ -1368,7 +1535,7 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
         suggestion: 'Try a more specific description or check if the element is visible',
       };
     }
-    
+
     // Step 3: Perform action - use Docker xdotool if in Docker mode, otherwise use local tools
     if (currentGUIApp.isDocker && currentGUIApp.containerId) {
       // Docker mode: use xdotool inside container
@@ -1379,7 +1546,7 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool mousemove ${coords.x} ${coords.y} click 1"`,
             WORKSPACE_DIR
           );
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return {
             success: true,
             action: 'click',
@@ -1393,7 +1560,7 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool mousemove ${coords.x} ${coords.y} click --repeat 2 1"`,
             WORKSPACE_DIR
           );
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return {
             success: true,
             action: 'double_click',
@@ -1407,7 +1574,7 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool mousemove ${coords.x} ${coords.y} click 3"`,
             WORKSPACE_DIR
           );
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return {
             success: true,
             action: 'right_click',
@@ -1424,12 +1591,12 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool mousemove ${coords.x} ${coords.y} click 1"`,
             WORKSPACE_DIR
           );
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise((resolve) => setTimeout(resolve, 200));
           await executeCommand(
             `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool type '${value.replace(/'/g, "'\\''")}'"`,
             WORKSPACE_DIR
           );
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return {
             success: true,
             action: 'type',
@@ -1444,7 +1611,7 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool mousemove ${coords.x} ${coords.y}"`,
             WORKSPACE_DIR
           );
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return {
             success: true,
             action: 'hover',
@@ -1464,8 +1631,8 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
       switch (action) {
         case 'click':
           await executeCliclick(`c:${coords.x},${coords.y}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           return {
             success: true,
             action: 'click',
@@ -1473,11 +1640,11 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             coordinates: { x: coords.x, y: coords.y },
             confidence: coords.confidence,
           };
-          
+
         case 'double_click':
           await executeCliclick(`dc:${coords.x},${coords.y}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           return {
             success: true,
             action: 'double_click',
@@ -1485,11 +1652,11 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             coordinates: { x: coords.x, y: coords.y },
             confidence: coords.confidence,
           };
-          
+
         case 'right_click':
           await executeCliclick(`rc:${coords.x},${coords.y}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           return {
             success: true,
             action: 'right_click',
@@ -1497,7 +1664,7 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             coordinates: { x: coords.x, y: coords.y },
             confidence: coords.confidence,
           };
-          
+
         case 'type': {
           if (!value) {
             throw new Error('Value is required for type action');
@@ -1505,12 +1672,12 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
 
           // Click first, then type
           await executeCliclick(`c:${coords.x},${coords.y}`);
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise((resolve) => setTimeout(resolve, 200));
 
           // Escape special characters for cliclick
           const escapedValue = value.replace(/"/g, '\\"');
           await executeCliclick(`t:"${escapedValue}"`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
 
           return {
             success: true,
@@ -1521,11 +1688,11 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             confidence: coords.confidence,
           };
         }
-          
+
         case 'hover':
           await executeCliclick(`m:${coords.x},${coords.y}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           return {
             success: true,
             action: 'hover',
@@ -1533,7 +1700,7 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             coordinates: { x: coords.x, y: coords.y },
             confidence: coords.confidence,
           };
-          
+
         default:
           return {
             success: false,
@@ -1545,8 +1712,8 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
       switch (action) {
         case 'click':
           await executeCommand(`xdotool mousemove ${coords.x} ${coords.y} click 1`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           return {
             success: true,
             action: 'click',
@@ -1554,11 +1721,11 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             coordinates: { x: coords.x, y: coords.y },
             confidence: coords.confidence,
           };
-          
+
         case 'double_click':
           await executeCommand(`xdotool mousemove ${coords.x} ${coords.y} click --repeat 2 1`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           return {
             success: true,
             action: 'double_click',
@@ -1566,11 +1733,11 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             coordinates: { x: coords.x, y: coords.y },
             confidence: coords.confidence,
           };
-          
+
         case 'right_click':
           await executeCommand(`xdotool mousemove ${coords.x} ${coords.y} click 3`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           return {
             success: true,
             action: 'right_click',
@@ -1578,18 +1745,18 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             coordinates: { x: coords.x, y: coords.y },
             confidence: coords.confidence,
           };
-          
+
         case 'type':
           if (!value) {
             throw new Error('Value is required for type action');
           }
-          
+
           // Click first, then type
           await executeCommand(`xdotool mousemove ${coords.x} ${coords.y} click 1`);
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise((resolve) => setTimeout(resolve, 200));
           await executeCommand(`xdotool type "${value.replace(/"/g, '\\"')}"`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           return {
             success: true,
             action: 'type',
@@ -1598,11 +1765,11 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             coordinates: { x: coords.x, y: coords.y },
             confidence: coords.confidence,
           };
-          
+
         case 'hover':
           await executeCommand(`xdotool mousemove ${coords.x} ${coords.y}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           return {
             success: true,
             action: 'hover',
@@ -1610,7 +1777,7 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
             coordinates: { x: coords.x, y: coords.y },
             confidence: coords.confidence,
           };
-          
+
         default:
           return {
             success: false,
@@ -1629,15 +1796,22 @@ async function executeGUIInteractionWithVision(action: string, elementDescriptio
     return {
       success: false,
       message: `Vision-based interaction failed: ${error instanceof Error ? error.message : String(error)}`,
-      suggestion: platform === 'darwin'
-        ? 'Check if cliclick is installed (brew install cliclick) and the element description is accurate'
-        : 'Check if xdotool is installed (sudo apt-get install xdotool) and the element description is accurate',
+      suggestion:
+        platform === 'darwin'
+          ? 'Check if cliclick is installed (brew install cliclick) and the element description is accurate'
+          : 'Check if xdotool is installed (sudo apt-get install xdotool) and the element description is accurate',
     };
   }
 }
 
 // Helper: Execute GUI interaction (using cliclick/xdotool for direct coordinate-based actions)
-async function executeGUIInteraction(action: string, x?: number, y?: number, value?: string, timeout: number = 5000): Promise<Record<string, unknown>> {
+async function executeGUIInteraction(
+  action: string,
+  x?: number,
+  y?: number,
+  value?: string,
+  timeout: number = 5000
+): Promise<Record<string, unknown>> {
   if (!currentGUIApp) {
     throw new Error('No GUI application is running');
   }
@@ -1662,9 +1836,9 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
               WORKSPACE_DIR
             );
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'click', coordinates: { x, y }, mode: 'docker' };
-          
+
         case 'double_click':
           if (x !== undefined && y !== undefined) {
             await executeCommand(
@@ -1677,9 +1851,9 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
               WORKSPACE_DIR
             );
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'double_click', coordinates: { x, y }, mode: 'docker' };
-          
+
         case 'right_click':
           if (x !== undefined && y !== undefined) {
             await executeCommand(
@@ -1692,21 +1866,21 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
               WORKSPACE_DIR
             );
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'right_click', coordinates: { x, y }, mode: 'docker' };
-          
+
         case 'move':
           if (x !== undefined && y !== undefined) {
             await executeCommand(
               `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool mousemove ${x} ${y}"`,
               WORKSPACE_DIR
             );
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise((resolve) => setTimeout(resolve, 200));
             return { success: true, action: 'move', coordinates: { x, y }, mode: 'docker' };
           } else {
             return { success: false, message: 'Coordinates required for move action' };
           }
-          
+
         case 'type': {
           if (!value) {
             return { success: false, message: 'Value required for type action' };
@@ -1716,10 +1890,10 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
             `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool type '${escapedValueDocker}'"`,
             WORKSPACE_DIR
           );
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'type', value, mode: 'docker' };
         }
-          
+
         case 'key':
           if (!value) {
             return { success: false, message: 'Key required for key action' };
@@ -1728,20 +1902,29 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
             `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool key ${value}"`,
             WORKSPACE_DIR
           );
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'key', key: value, mode: 'docker' };
-          
+
         case 'drag': {
           if (!value) {
-            return { success: false, message: 'Coordinates required for drag action (format: "x1,y1,x2,y2")' };
+            return {
+              success: false,
+              message: 'Coordinates required for drag action (format: "x1,y1,x2,y2")',
+            };
           }
           const [x1, y1, x2, y2] = value.split(',').map(Number);
           await executeCommand(
             `docker exec ${currentGUIApp.containerId} bash -c "DISPLAY=:99 xdotool mousemove ${x1} ${y1} mousedown 1 mousemove ${x2} ${y2} mouseup 1"`,
             WORKSPACE_DIR
           );
-          await new Promise(resolve => setTimeout(resolve, 500));
-          return { success: true, action: 'drag', from: { x: x1, y: y1 }, to: { x: x2, y: y2 }, mode: 'docker' };
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          return {
+            success: true,
+            action: 'drag',
+            from: { x: x1, y: y1 },
+            to: { x: x2, y: y2 },
+            mode: 'docker',
+          };
         }
         case 'screenshot': {
           const screenshotPath = path.join(WORKSPACE_DIR, 'screenshot.png');
@@ -1749,18 +1932,18 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
           return { success: true, action: 'screenshot', path: screenshotPath, mode: 'docker' };
         }
         case 'wait':
-          await new Promise(resolve => setTimeout(resolve, timeout));
+          await new Promise((resolve) => setTimeout(resolve, timeout));
           return { success: true, action: 'wait', duration: timeout, mode: 'docker' };
-          
+
         default:
           return { success: false, message: `Action '${action}' is not supported in Docker mode` };
       }
     }
-    
+
     // Local mode: Bring window to front first
     await focusApplicationWindow();
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     if (platform === 'darwin') {
       // macOS: Use cliclick
       switch (action) {
@@ -1770,43 +1953,43 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
           } else {
             await executeCliclick('c:.');
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'click', coordinates: { x, y } };
-          
+
         case 'double_click':
           if (x !== undefined && y !== undefined) {
             await executeCliclick(`dc:${x},${y}`);
           } else {
             await executeCliclick('dc:.');
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'double_click', coordinates: { x, y } };
-          
+
         case 'right_click':
           if (x !== undefined && y !== undefined) {
             await executeCliclick(`rc:${x},${y}`);
           } else {
             await executeCliclick('rc:.');
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'right_click', coordinates: { x, y } };
-          
+
         case 'move':
           if (x !== undefined && y !== undefined) {
             await executeCliclick(`m:${x},${y}`);
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise((resolve) => setTimeout(resolve, 200));
             return { success: true, action: 'move', coordinates: { x, y } };
           } else {
             return { success: false, message: 'Coordinates required for move action' };
           }
-          
+
         case 'type': {
           if (!value) {
             return { success: false, message: 'Value required for type action' };
           }
           const escapedValue = value.replace(/"/g, '\\"');
           await executeCliclick(`t:"${escapedValue}"`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'type', value };
         }
         case 'key':
@@ -1814,17 +1997,20 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
             return { success: false, message: 'Key required for key action' };
           }
           await executeCliclick(`kp:${value}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'key', key: value };
-          
+
         case 'drag': {
           // value should be "x1,y1,x2,y2"
           if (!value) {
-            return { success: false, message: 'Coordinates required for drag action (format: "x1,y1,x2,y2")' };
+            return {
+              success: false,
+              message: 'Coordinates required for drag action (format: "x1,y1,x2,y2")',
+            };
           }
           const [x1, y1, x2, y2] = value.split(',').map(Number);
           await executeCliclick(`dd:${x1},${y1} m:${x2},${y2} du:${x2},${y2}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'drag', from: { x: x1, y: y1 }, to: { x: x2, y: y2 } };
         }
         case 'screenshot': {
@@ -1833,9 +2019,9 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
           return { success: true, action: 'screenshot', path: screenshotPath };
         }
         case 'wait':
-          await new Promise(resolve => setTimeout(resolve, timeout));
+          await new Promise((resolve) => setTimeout(resolve, timeout));
           return { success: true, action: 'wait', duration: timeout };
-          
+
         default:
           return { success: false, message: `Action '${action}' is not supported` };
       }
@@ -1848,59 +2034,71 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
           } else {
             await executeCommand('xdotool click 1');
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'click', coordinates: { x, y } };
-          
+
         case 'double_click':
           if (x !== undefined && y !== undefined) {
             await executeCommand(`xdotool mousemove ${x} ${y} click --repeat 2 1`);
           } else {
             await executeCommand('xdotool click --repeat 2 1');
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'double_click', coordinates: { x, y } };
-          
+
         case 'right_click':
           if (x !== undefined && y !== undefined) {
             await executeCommand(`xdotool mousemove ${x} ${y} click 3`);
           } else {
             await executeCommand('xdotool click 3');
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'right_click', coordinates: { x, y } };
-          
+
         case 'move':
           if (x !== undefined && y !== undefined) {
             await executeCommand(`xdotool mousemove ${x} ${y}`);
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise((resolve) => setTimeout(resolve, 200));
             return { success: true, action: 'move', coordinates: { x, y } };
           } else {
             return { success: false, message: 'Coordinates required for move action' };
           }
-          
+
         case 'type':
           if (!value) {
             return { success: false, message: 'Value required for type action' };
           }
           await executeCommand(`xdotool type "${value.replace(/"/g, '\\"')}"`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'type', value };
-          
+
         case 'key':
           if (!value) {
             return { success: false, message: 'Key required for key action' };
           }
+          // Validate key name: only allow alphanumeric, +, -, _, and spaces (for key combinations)
+          if (!/^[a-zA-Z0-9_+\-\s]+$/.test(value)) {
+            return {
+              success: false,
+              message: `Invalid key value: "${value}". Only alphanumeric, +, -, _, and space characters are allowed.`,
+            };
+          }
           await executeCommand(`xdotool key ${value}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'key', key: value };
-          
+
         case 'drag': {
           if (!value) {
-            return { success: false, message: 'Coordinates required for drag action (format: "x1,y1,x2,y2")' };
+            return {
+              success: false,
+              message: 'Coordinates required for drag action (format: "x1,y1,x2,y2")',
+            };
           }
           const [x1, y1, x2, y2] = value.split(',').map(Number);
-          await executeCommand(`xdotool mousemove ${x1} ${y1} mousedown 1 mousemove ${x2} ${y2} mouseup 1`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await executeCommand(
+            `xdotool mousemove ${x1} ${y1} mousedown 1 mousemove ${x2} ${y2} mouseup 1`
+          );
+          await new Promise((resolve) => setTimeout(resolve, 500));
           return { success: true, action: 'drag', from: { x: x1, y: y1 }, to: { x: x2, y: y2 } };
         }
         case 'screenshot': {
@@ -1908,11 +2106,11 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
           await takeScreenshot(screenshotPath);
           return { success: true, action: 'screenshot', path: screenshotPath };
         }
-          
+
         case 'wait':
-          await new Promise(resolve => setTimeout(resolve, timeout));
+          await new Promise((resolve) => setTimeout(resolve, timeout));
           return { success: true, action: 'wait', duration: timeout };
-          
+
         default:
           return { success: false, message: `Action '${action}' is not supported` };
       }
@@ -1921,16 +2119,18 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
       return {
         success: false,
         message: 'Direct GUI interaction is not yet fully supported on Windows',
-        suggestion: 'Use macOS (cliclick) or Linux (xdotool) for GUI automation, or use vision-based interaction',
+        suggestion:
+          'Use macOS (cliclick) or Linux (xdotool) for GUI automation, or use vision-based interaction',
       };
     }
   } catch (error: unknown) {
     return {
       success: false,
       message: `GUI interaction failed: ${error instanceof Error ? error.message : String(error)}`,
-      suggestion: platform === 'darwin' 
-        ? 'Check if cliclick is installed (brew install cliclick)'
-        : 'Check if xdotool is installed (sudo apt-get install xdotool)',
+      suggestion:
+        platform === 'darwin'
+          ? 'Check if cliclick is installed (brew install cliclick)'
+          : 'Check if xdotool is installed (sudo apt-get install xdotool)',
     };
   }
 }
@@ -1942,11 +2142,11 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
 //     writeMCPLog('[GUI] Assertions are only supported for web apps');
 //     return false;
 //   }
-//   
+//
 //   if (!currentGUIApp.url) {
 //     return false;
 //   }
-//   
+//
 //   // Check if Playwright is available
 //   try {
 //     await executeCommand('npm list playwright --depth=0');
@@ -1954,18 +2154,18 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
 //     writeMCPLog('[GUI] Playwright not installed, cannot perform assertions');
 //     return false;
 //   }
-//   
+//
 //   const script = `
 // const { chromium } = require('playwright');
-// 
+//
 // (async () => {
 //   const browser = await chromium.launch({ headless: false });
 //   const page = await browser.newPage();
-//   
+//
 //   await page.goto('${currentGUIApp.url}');
-//   
+//
 //   let result = false;
-//   
+//
 //   try {
 //     switch ('${assertionType}') {
 //       case 'element_exists':
@@ -1995,12 +2195,12 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
 //   } catch (error) {
 //     result = false;
 //   }
-//   
+//
 //   console.log(JSON.stringify({ passed: result }));
 //   await browser.close();
 // })();
 // `;
-//   
+//
 //   try {
 //     const { stdout } = await executeCommand(`node -e "${script.replace(/"/g, '\\"')}"`);
 //     const { passed } = JSON.parse(stdout);
@@ -2013,29 +2213,35 @@ async function executeGUIInteraction(action: string, x?: number, y?: number, val
 // Helper: Execute Claude Code command
 // @ts-expect-error - Reserved for future use
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function executeClaudeCode(prompt: string, workingDir: string = WORKSPACE_DIR): Promise<string> {
+async function executeClaudeCode(
+  prompt: string,
+  workingDir: string = WORKSPACE_DIR
+): Promise<string> {
   try {
     // Check if claude-code is available
     const claudeCodePath = process.env.CLAUDE_CODE_PATH || 'claude-code';
-    
+
     // Execute claude-code with the prompt
     const { stdout, stderr } = await execFileAsync(
-      'bash', ['-c', `${claudeCodePath} "${prompt.replace(/"/g, '\\"')}"`],
+      'bash',
+      ['-c', `${claudeCodePath} "${prompt.replace(/"/g, '\\"')}"`],
       {
         cwd: workingDir,
         maxBuffer: 10 * 1024 * 1024, // 10MB buffer
         timeout: 120000, // 2 minute timeout
       }
     );
-    
+
     if (stderr && !stderr.includes('Warning')) {
       writeMCPLog('[ClaudeCode] stderr:', stderr);
     }
-    
+
     return stdout || stderr || 'Command executed successfully';
   } catch (error: unknown) {
     writeMCPLog('[ClaudeCode] Error:', error instanceof Error ? error.message : String(error));
-    throw new Error(`Claude Code execution failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Claude Code execution failed: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -2051,7 +2257,9 @@ async function readFile(filePath: string): Promise<string> {
   try {
     return await fs.readFile(fullPath, 'utf-8');
   } catch (error: unknown) {
-    throw new Error(`Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -2065,7 +2273,9 @@ async function writeFile(filePath: string, content: string): Promise<void> {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, content, 'utf-8');
   } catch (error: unknown) {
-    throw new Error(`Failed to write file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to write file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -2077,7 +2287,9 @@ async function deleteFile(filePath: string): Promise<void> {
   try {
     await fs.unlink(fullPath);
   } catch (error: unknown) {
-    throw new Error(`Failed to delete file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to delete file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -2093,7 +2305,10 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 // Helper: Execute shell command
-async function executeCommand(command: string, workingDir: string = WORKSPACE_DIR): Promise<{ stdout: string; stderr: string }> {
+async function executeCommand(
+  command: string,
+  workingDir: string = WORKSPACE_DIR
+): Promise<{ stdout: string; stderr: string }> {
   try {
     // Use execFileAsync with bash -c instead of exec to avoid direct shell interpolation
     return await execFileAsync('bash', ['-c', command], {
@@ -2103,7 +2318,9 @@ async function executeCommand(command: string, workingDir: string = WORKSPACE_DI
     });
   } catch (error: unknown) {
     const err = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string };
-    throw new Error(`Command execution failed: ${err.message}\nStdout: ${err.stdout}\nStderr: ${err.stderr}`);
+    throw new Error(
+      `Command execution failed: ${err.message}\nStdout: ${err.stdout}\nStderr: ${err.stderr}`
+    );
   }
 }
 
@@ -2131,7 +2348,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'create_requirement',
-        description: 'Create a new requirement for tracking. Requirements can be linked to code files and tests.',
+        description:
+          'Create a new requirement for tracking. Requirements can be linked to code files and tests.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2150,7 +2368,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'update_requirement',
-        description: 'Update an existing requirement based on test results, user feedback, or new findings',
+        description:
+          'Update an existing requirement based on test results, user feedback, or new findings',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2177,7 +2396,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'validate_requirement',
-        description: 'Validate whether a requirement has been completed by checking if all required files exist',
+        description:
+          'Validate whether a requirement has been completed by checking if all required files exist',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2219,7 +2439,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'start_gui_application',
-        description: 'Start a GUI application for testing. Supports Python (tkinter, PyQt, etc.), Electron, web apps, and more. Can run in Docker for isolation.',
+        description:
+          'Start a GUI application for testing. Supports Python (tkinter, PyQt, etc.), Electron, web apps, and more. Can run in Docker for isolation.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2234,7 +2455,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             start_command: {
               type: 'string',
-              description: 'REQUIRED: The command to START/LAUNCH the GUI application. This command will be executed to bring up the application window. Examples: "python app.py" to run a Python GUI app, "npm start" to launch an Electron app, "java -jar myapp.jar" for Java apps, "python test_gomoku.py" to run a test script that launches the app. This is the actual command that starts your application process.',
+              description:
+                'REQUIRED: The command to START/LAUNCH the GUI application. This command will be executed to bring up the application window. Examples: "python app.py" to run a Python GUI app, "npm start" to launch an Electron app, "java -jar myapp.jar" for Java apps, "python test_gomoku.py" to run a test script that launches the app. This is the actual command that starts your application process.',
             },
             wait_for_ready: {
               type: 'number',
@@ -2242,11 +2464,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             use_docker: {
               type: 'boolean',
-              description: 'Run in isolated Docker environment (default: false). Prevents interference with user work.',
+              description:
+                'Run in isolated Docker environment (default: false). Prevents interference with user work.',
             },
             enable_vnc: {
               type: 'boolean',
-              description: 'Enable VNC server for viewing tests (default: true, only for Docker mode)',
+              description:
+                'Enable VNC server for viewing tests (default: true, only for Docker mode)',
             },
             vnc_port: {
               type: 'number',
@@ -2258,13 +2482,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'gui_interact',
-        description: 'Interact with GUI using direct coordinates (cliclick on macOS, xdotool on Linux). For element-based interaction, use gui_interact_vision instead.',
+        description:
+          'Interact with GUI using direct coordinates (cliclick on macOS, xdotool on Linux). For element-based interaction, use gui_interact_vision instead.',
         inputSchema: {
           type: 'object',
           properties: {
             action: {
               type: 'string',
-              enum: ['click', 'double_click', 'right_click', 'move', 'type', 'key', 'drag', 'screenshot', 'wait'],
+              enum: [
+                'click',
+                'double_click',
+                'right_click',
+                'move',
+                'type',
+                'key',
+                'drag',
+                'screenshot',
+                'wait',
+              ],
               description: 'Action to perform. Use coordinates (x, y) for click/move actions.',
             },
             x: {
@@ -2277,7 +2512,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             value: {
               type: 'string',
-              description: 'Value for the action (text to type, key name, or drag coordinates "x1,y1,x2,y2")',
+              description:
+                'Value for the action (text to type, key name, or drag coordinates "x1,y1,x2,y2")',
             },
             timeout: {
               type: 'number',
@@ -2289,13 +2525,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'gui_assert',
-        description: 'Assert GUI state using vision-based verification. Ask questions about what should be visible on screen.',
+        description:
+          'Assert GUI state using vision-based verification. Ask questions about what should be visible on screen.',
         inputSchema: {
           type: 'object',
           properties: {
             question: {
               type: 'string',
-              description: 'Question about expected GUI state (e.g., "Is the OK button visible?", "Does the text say Hello World?")',
+              description:
+                'Question about expected GUI state (e.g., "Is the OK button visible?", "Does the text say Hello World?")',
             },
             expected_answer: {
               type: 'string',
@@ -2320,7 +2558,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'get_docker_logs',
-        description: 'Get and save comprehensive Docker container logs and diagnostics to .docker-logs directory. Useful for debugging black screen or other issues.',
+        description:
+          'Get and save comprehensive Docker container logs and diagnostics to .docker-logs directory. Useful for debugging black screen or other issues.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2333,7 +2572,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'gui_interact_vision',
-        description: 'Interact with GUI elements using AI vision to locate elements (cliclick on macOS, xdotool on Linux). Works with ANY GUI app. Describe the element in natural language.',
+        description:
+          'Interact with GUI elements using AI vision to locate elements (cliclick on macOS, xdotool on Linux). Works with ANY GUI app. Describe the element in natural language.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2344,7 +2584,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             element_description: {
               type: 'string',
-              description: 'Natural language description of the element to interact with (e.g., "the red Start button", "the text input field at the top", "the OK button in the dialog")',
+              description:
+                'Natural language description of the element to interact with (e.g., "the red Start button", "the text input field at the top", "the OK button in the dialog")',
             },
             value: {
               type: 'string',
@@ -2360,18 +2601,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'gui_verify_vision',
-        description: 'Verify GUI state using AI vision. Ask questions about what is visible on screen and get intelligent answers.',
+        description:
+          'Verify GUI state using AI vision. Ask questions about what is visible on screen and get intelligent answers.',
         inputSchema: {
           type: 'object',
           properties: {
             question: {
               type: 'string',
-              description: 'Question about the GUI state (e.g., "Is the game board visible?", "What is the current player shown?", "Are there any error messages?")',
+              description:
+                'Question about the GUI state (e.g., "Is the game board visible?", "What is the current player shown?", "Are there any error messages?")',
             },
           },
           required: ['question'],
         },
-      }
+      },
     ],
   };
 });
@@ -2384,7 +2627,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case 'create_requirement': {
         const { description, files } = args as { description: string; files?: string[] };
-        
+
         const reqId = generateRequirementId();
         const requirement: Requirement = {
           id: reqId,
@@ -2395,56 +2638,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           updatedAt: new Date(),
           history: [],
         };
-        
+
         requirements.set(reqId, requirement);
-        
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: true,
-                message: 'Requirement created',
-                requirement_id: reqId,
-                requirement,
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: 'Requirement created',
+                  requirement_id: reqId,
+                  requirement,
+                },
+                null,
+                2
+              ),
             },
           ],
         };
       }
 
       case 'update_requirement': {
-        const { requirement_id, updated_description, reason, status } = args as { requirement_id: string; updated_description: string; reason: string; status?: 'pending' | 'in-progress' | 'completed' | 'failed' };
-        
+        const { requirement_id, updated_description, reason, status } = args as {
+          requirement_id: string;
+          updated_description: string;
+          reason: string;
+          status?: 'pending' | 'in-progress' | 'completed' | 'failed';
+        };
+
         const req = requirements.get(requirement_id);
         if (!req) {
           throw new Error(`Requirement not found: ${requirement_id}`);
         }
-        
+
         // Add to history
         req.history.push({
           timestamp: new Date(),
           description: req.description,
           reason,
         });
-        
+
         // Update requirement
         req.description = updated_description;
         if (status) {
           req.status = status;
         }
         req.updatedAt = new Date();
-        
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: true,
-                message: 'Requirement updated',
-                requirement_id,
-                requirement: req,
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: 'Requirement updated',
+                  requirement_id,
+                  requirement: req,
+                },
+                null,
+                2
+              ),
             },
           ],
         };
@@ -2452,22 +2708,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'validate_requirement': {
         const { requirement_id } = args as { requirement_id: string };
-        
+
         const req = requirements.get(requirement_id);
         if (!req) {
           throw new Error(`Requirement not found: ${requirement_id}`);
         }
-        
+
         // Check if all files exist
         const missingFiles: string[] = [];
         for (const file of req.files) {
-          if (!await fileExists(file)) {
+          if (!(await fileExists(file))) {
             missingFiles.push(file);
           }
         }
-        
+
         const validated = missingFiles.length === 0;
-        
+
         // Update requirement status
         if (validated) {
           req.status = 'completed';
@@ -2475,19 +2731,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           req.status = 'failed';
         }
         req.updatedAt = new Date();
-        
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: true,
-                requirement_id,
-                validated,
-                status: req.status,
-                missing_files: missingFiles,
-                requirement: req,
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: true,
+                  requirement_id,
+                  validated,
+                  status: req.status,
+                  missing_files: missingFiles,
+                  requirement: req,
+                },
+                null,
+                2
+              ),
             },
           ],
         };
@@ -2495,24 +2755,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'list_requirements': {
         const { status_filter } = args as { status_filter?: string };
-        
+
         let filteredReqs = Array.from(requirements.values());
-        
+
         if (status_filter && status_filter !== 'all') {
-          filteredReqs = filteredReqs.filter(req => req.status === status_filter);
+          filteredReqs = filteredReqs.filter((req) => req.status === status_filter);
         }
-        
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: true,
-                total: requirements.size,
-                filtered: filteredReqs.length,
-                status_filter: status_filter || 'all',
-                requirements: filteredReqs,
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: true,
+                  total: requirements.size,
+                  filtered: filteredReqs.length,
+                  status_filter: status_filter || 'all',
+                  requirements: filteredReqs,
+                },
+                null,
+                2
+              ),
             },
           ],
         };
@@ -2520,33 +2784,53 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'read_code_file': {
         const { file_path } = args as { file_path: string };
-        
+
         const content = await readFile(file_path);
-        
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: true,
-                file_path,
-                content,
-                size: content.length,
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: true,
+                  file_path,
+                  content,
+                  size: content.length,
+                },
+                null,
+                2
+              ),
             },
           ],
         };
       }
 
       case 'start_gui_application': {
-        const { app_file_path, app_type, start_command, wait_for_ready, use_docker, enable_vnc, vnc_port } = args as { app_file_path: string; app_type: string; start_command?: string; wait_for_ready?: number; use_docker?: boolean; enable_vnc?: boolean; vnc_port?: number };
-        
+        const {
+          app_file_path,
+          app_type,
+          start_command,
+          wait_for_ready,
+          use_docker,
+          enable_vnc,
+          vnc_port,
+        } = args as {
+          app_file_path: string;
+          app_type: string;
+          start_command?: string;
+          wait_for_ready?: number;
+          use_docker?: boolean;
+          enable_vnc?: boolean;
+          vnc_port?: number;
+        };
+
         // Stop existing app if running
         if (currentGUIApp) {
           await stopGUIApplication(currentGUIApp, true);
           currentGUIApp = null;
         }
-        
+
         // Start new app
         const instance = await startGUIApplication(
           app_file_path,
@@ -2557,39 +2841,49 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           enable_vnc !== false, // default to true
           vnc_port || 5901
         );
-        
+
         currentGUIApp = instance;
-        
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: true,
-                message: 'GUI application started',
-                app_file_path,
-                app_type,
-                pid: instance.pid,
-                url: instance.url,
-                start_time: instance.startTime,
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: 'GUI application started',
+                  app_file_path,
+                  app_type,
+                  pid: instance.pid,
+                  url: instance.url,
+                  start_time: instance.startTime,
+                },
+                null,
+                2
+              ),
             },
           ],
         };
       }
 
       case 'gui_interact': {
-        const { action, x, y, value, timeout } = args as { action: string; x?: number; y?: number; value?: string; timeout?: number };
-        
+        const { action, x, y, value, timeout } = args as {
+          action: string;
+          x?: number;
+          y?: number;
+          value?: string;
+          timeout?: number;
+        };
+
         if (!currentGUIApp) {
           throw new Error('No GUI application is running. Use start_gui_application first.');
         }
-        
+
         writeMCPLog(`[GUI] Performing action: ${action} at (${x}, ${y})`);
-        
+
         try {
           const result = await executeGUIInteraction(action, x, y, value, timeout || 5000);
-          
+
           return {
             content: [
               {
@@ -2603,11 +2897,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: false,
-                  tool: 'gui_interact',
-                  error: error instanceof Error ? error.message : String(error),
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: false,
+                    tool: 'gui_interact',
+                    error: error instanceof Error ? error.message : String(error),
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
@@ -2615,52 +2913,61 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'gui_assert': {
-        const { question, expected_answer } = args as { question: string; expected_answer?: string };
-        
+        const { question, expected_answer } = args as {
+          question: string;
+          expected_answer?: string;
+        };
+
         if (!currentGUIApp) {
           throw new Error('No GUI application is running. Use start_gui_application first.');
         }
-        
+
         writeMCPLog(`[GUI] Asserting: ${question}`);
-        
+
         try {
           // Use vision to verify the GUI state
           const screenshotPath = path.join(WORKSPACE_DIR, 'gui_screenshot.png');
-          
+
           // Bring window to front and take screenshot (skip focus for Docker)
           if (!currentGUIApp.isDocker) {
             await focusApplicationWindow();
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise((resolve) => setTimeout(resolve, 1000));
           }
           await takeScreenshot(screenshotPath);
-          
+
           // Analyze with vision model
           const imageBuffer = await fs.readFile(screenshotPath);
           const base64Image = imageBuffer.toString('base64');
-          
+
           const prompt = `Analyze this GUI screenshot and answer the following question:\n\n${question}\n\nProvide a clear yes/no answer or the specific information requested.`;
           const answer = await callVisionAPI(base64Image, prompt, 1024);
-          
+
           // Check if answer matches expected (if provided)
           let passed = true;
           if (expected_answer) {
             const normalizedAnswer = answer.toLowerCase().trim();
             const normalizedExpected = expected_answer.toLowerCase().trim();
-            passed = normalizedAnswer.includes(normalizedExpected) || normalizedAnswer === normalizedExpected;
+            passed =
+              normalizedAnswer.includes(normalizedExpected) ||
+              normalizedAnswer === normalizedExpected;
           }
-          
+
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  question,
-                  answer,
-                  expected_answer,
-                  passed,
-                  screenshot_path: screenshotPath,
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    question,
+                    answer,
+                    expected_answer,
+                    passed,
+                    screenshot_path: screenshotPath,
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
@@ -2669,11 +2976,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: false,
-                  tool: 'gui_assert',
-                  error: error instanceof Error ? error.message : String(error),
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: false,
+                    tool: 'gui_assert',
+                    error: error instanceof Error ? error.message : String(error),
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
@@ -2682,32 +2993,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'stop_gui_application': {
         const { force } = args as { force?: boolean };
-        
+
         if (!currentGUIApp) {
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  message: 'No GUI application is running',
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    message: 'No GUI application is running',
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
         }
-        
+
         await stopGUIApplication(currentGUIApp, force || false);
         currentGUIApp = null;
-        
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: true,
-                message: 'GUI application stopped',
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: 'GUI application stopped',
+                },
+                null,
+                2
+              ),
             },
           ],
         };
@@ -2715,43 +3034,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'get_docker_logs': {
         const { save_to_file } = args as { save_to_file?: boolean };
-        
+
         if (!currentGUIApp || !currentGUIApp.isDocker || !currentGUIApp.containerId) {
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: false,
-                  message: 'No Docker container is running. Use start_gui_application with use_docker=true first.',
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: false,
+                    message:
+                      'No Docker container is running. Use start_gui_application with use_docker=true first.',
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
         }
-        
+
         try {
           let logFile: string | undefined;
-          
+
           if (save_to_file !== false) {
             logFile = await saveDockerDiagnostics(currentGUIApp.containerId, WORKSPACE_DIR);
           }
-          
+
           // Also get simple logs
           const logs = await getDockerContainerLogs(currentGUIApp.containerId);
-          
+
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  message: 'Docker logs retrieved',
-                  container_id: currentGUIApp.containerId,
-                  log_file: logFile,
-                  logs_preview: logs.substring(0, 2000) + (logs.length > 2000 ? '\n... (truncated, see log_file for full logs)' : ''),
-                  full_logs_length: logs.length,
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    message: 'Docker logs retrieved',
+                    container_id: currentGUIApp.containerId,
+                    log_file: logFile,
+                    logs_preview:
+                      logs.substring(0, 2000) +
+                      (logs.length > 2000 ? '\n... (truncated, see log_file for full logs)' : ''),
+                    full_logs_length: logs.length,
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
@@ -2760,11 +3090,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: false,
-                  message: 'Failed to get Docker logs',
-                  error: error instanceof Error ? error.message : String(error),
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: false,
+                    message: 'Failed to get Docker logs',
+                    error: error instanceof Error ? error.message : String(error),
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
@@ -2772,17 +3106,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'gui_interact_vision': {
-        const { action, element_description, value, timeout } = args as { action: string; element_description: string; value?: string; timeout?: number };
-        
+        const { action, element_description, value, timeout } = args as {
+          action: string;
+          element_description: string;
+          value?: string;
+          timeout?: number;
+        };
+
         if (!currentGUIApp) {
           throw new Error('No GUI application is running. Use start_gui_application first.');
         }
-        
+
         writeMCPLog(`[Vision] Performing ${action} on "${element_description}"`);
-        
+
         try {
-          const result = await executeGUIInteractionWithVision(action, element_description, value, timeout || 5000);
-          
+          const result = await executeGUIInteractionWithVision(
+            action,
+            element_description,
+            value,
+            timeout || 5000
+          );
+
           return {
             content: [
               {
@@ -2796,11 +3140,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: false,
-                  tool: 'gui_interact_vision',
-                  error: error instanceof Error ? error.message : String(error),
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: false,
+                    tool: 'gui_interact_vision',
+                    error: error instanceof Error ? error.message : String(error),
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
@@ -2809,44 +3157,48 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'gui_verify_vision': {
         const { question } = args as { question: string };
-        
+
         if (!currentGUIApp) {
           throw new Error('No GUI application is running. Use start_gui_application first.');
         }
-        
+
         writeMCPLog(`[Vision] Verifying: ${question}`);
-        
+
         try {
           // Bring window to front before taking screenshot (skip for Docker)
           if (!currentGUIApp.isDocker) {
             writeMCPLog('[Vision] Bringing window to front for verification...');
             await focusApplicationWindow();
             writeMCPLog('[Vision] Waiting 1 second for window to come to front...');
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise((resolve) => setTimeout(resolve, 1000));
           }
-          
+
           // Take screenshot (automatically handles Docker mode)
           writeMCPLog('[Vision] Taking screenshot for verification...');
           const screenshotPath = path.join(WORKSPACE_DIR, 'gui_screenshot.png');
           await takeScreenshot(screenshotPath);
-          
+
           // Analyze with vision model
           const imageBuffer = await fs.readFile(screenshotPath);
           const base64Image = imageBuffer.toString('base64');
-          
+
           const prompt = `Analyze this GUI screenshot and answer the following question:\n\n${question}\n\nProvide a detailed answer based on what you can see in the image.`;
           const answer = await callVisionAPI(base64Image, prompt, 2048);
-          
+
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  question,
-                  answer,
-                  screenshot_path: screenshotPath,
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    question,
+                    answer,
+                    screenshot_path: screenshotPath,
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
@@ -2855,11 +3207,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: false,
-                  tool: 'gui_verify_vision',
-                  error: error instanceof Error ? error.message : String(error),
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: false,
+                    tool: 'gui_verify_vision',
+                    error: error instanceof Error ? error.message : String(error),
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
@@ -2870,16 +3226,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (error) {
-    writeMCPLog(`[SoftwareDev] Error in ${name}: ${error instanceof Error ? error.message : String(error)}`, 'Error');
+    writeMCPLog(
+      `[SoftwareDev] Error in ${name}: ${error instanceof Error ? error.message : String(error)}`,
+      'Error'
+    );
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify({
-            success: false,
-            tool: name,
-            error: error instanceof Error ? error.message : String(error),
-          }, null, 2),
+          text: JSON.stringify(
+            {
+              success: false,
+              tool: name,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            null,
+            2
+          ),
         },
       ],
       isError: true,
@@ -2891,7 +3254,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  
+
   writeMCPLog('='.repeat(60));
   writeMCPLog('Software Development MCP Server v1.0.0');
   writeMCPLog('='.repeat(60));

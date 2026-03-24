@@ -659,31 +659,36 @@ export class MCPManager {
       log(`[MCPManager] HOME: ${env.HOME}`);
       log(`[MCPManager] NODE_PATH: ${env.NODE_PATH || '(not set)'}`);
 
-      // Test if npx can be executed with the current environment
-      try {
-        const { execFile } = await import('child_process');
-        const { promisify } = await import('util');
-        const execFileAsync = promisify(execFile);
+      // Test if npx can be executed with the current environment (only when command is npx)
+      const isNpxCommand =
+        path.basename(command).toLowerCase() === 'npx' ||
+        path.basename(command).toLowerCase() === 'npx.cmd';
+      if (isNpxCommand) {
+        try {
+          const { execFile } = await import('child_process');
+          const { promisify } = await import('util');
+          const execFileAsync = promisify(execFile);
 
-        log(`[MCPManager] Testing npx execution: ${command} --version`);
-        const testResult = await execFileAsync(command, ['--version'], {
-          timeout: 5000,
-          env: env,
-        });
-        log(`[MCPManager] npx test successful: ${testResult.stdout.trim()}`);
-      } catch (testError: unknown) {
-        logError(
-          `[MCPManager] npx test failed: ${testError instanceof Error ? testError.message : String(testError)}`
-        );
-        if (
-          testError instanceof Error &&
-          (testError as NodeJS.ErrnoException & { stderr?: string }).stderr
-        ) {
+          log(`[MCPManager] Testing npx execution: ${command} --version`);
+          const testResult = await execFileAsync(command, ['--version'], {
+            timeout: 5000,
+            env: env,
+          });
+          log(`[MCPManager] npx test successful: ${testResult.stdout.trim()}`);
+        } catch (testError: unknown) {
           logError(
-            `[MCPManager] npx test stderr: ${(testError as NodeJS.ErrnoException & { stderr?: string }).stderr}`
+            `[MCPManager] npx test failed: ${testError instanceof Error ? testError.message : String(testError)}`
           );
+          if (
+            testError instanceof Error &&
+            (testError as NodeJS.ErrnoException & { stderr?: string }).stderr
+          ) {
+            logError(
+              `[MCPManager] npx test stderr: ${(testError as NodeJS.ErrnoException & { stderr?: string }).stderr}`
+            );
+          }
+          logError(`[MCPManager] This indicates npx cannot run with the current environment`);
         }
-        logError(`[MCPManager] This indicates npx cannot run with the current environment`);
       }
 
       // Create STDIO transport - it will spawn the process internally
@@ -695,63 +700,6 @@ export class MCPManager {
       });
 
       log(`[MCPManager] STDIO transport created successfully`);
-
-      // IMPORTANT: Wait a bit for the process to spawn
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Try to capture stderr from the spawned process for debugging
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const transportAny = transport as any;
-        if (transportAny._process) {
-          const process = transportAny._process;
-          log(`[MCPManager] MCP server process spawned with PID: ${process.pid}`);
-
-          // Unref so this child process doesn't prevent parent exit
-          process.unref();
-
-          // NOTE: Do NOT attach a 'data' listener to process.stdout here.
-          // The StdioClientTransport owns stdout as its JSON-RPC channel; a competing
-          // listener would consume bytes and corrupt the protocol framing.
-
-          // Listen to stderr for error messages
-          if (process.stderr) {
-            process.stderr.on('data', (data: Buffer) => {
-              try {
-                const message = data.toString().trim();
-                if (message) {
-                  logError(`[MCPManager] MCP server stderr: ${message}`);
-                }
-              } catch (error) {
-                logError('[MCPManager] Error processing MCP server stderr:', error);
-              }
-            });
-          }
-
-          // Listen to process exit
-          process.on('exit', (code: number, signal: string) => {
-            if (code !== null && code !== 0) {
-              logError(`[MCPManager] MCP server process exited with code ${code}`);
-            } else if (signal) {
-              logError(`[MCPManager] MCP server process killed with signal ${signal}`);
-            } else {
-              log(`[MCPManager] MCP server process exited normally`);
-            }
-          });
-
-          process.on('error', (error: Error) => {
-            logError(`[MCPManager] MCP server process error: ${error.message}`);
-            logError(`[MCPManager] Error stack: ${error.stack}`);
-          });
-        } else {
-          logWarn(`[MCPManager] Could not access transport._process, it may not be spawned yet`);
-        }
-      } catch (e: unknown) {
-        // Ignore if we can't access internal process
-        logWarn(
-          `[MCPManager] Could not attach to MCP server process for logging: ${e instanceof Error ? e.message : String(e)}`
-        );
-      }
     } else if (config.type === 'sse') {
       if (!config.url) {
         throw new Error(`SSE server ${config.name} requires a URL`);
@@ -809,6 +757,62 @@ export class MCPManager {
       // Connect (client.connect() will automatically call transport.start())
       await client.connect(transport);
       log(`[MCPManager] Client.connect() completed successfully`);
+
+      // After connect(), the STDIO transport has spawned the child process.
+      // Register process listeners now so _process is guaranteed to exist.
+      if (config.type === 'stdio') {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const transportAny = transport as any;
+          if (transportAny._process) {
+            const childProcess = transportAny._process;
+            log(`[MCPManager] MCP server process spawned with PID: ${childProcess.pid}`);
+
+            // Unref so this child process doesn't prevent parent exit
+            childProcess.unref();
+
+            // NOTE: Do NOT attach a 'data' listener to process.stdout here.
+            // The StdioClientTransport owns stdout as its JSON-RPC channel; a competing
+            // listener would consume bytes and corrupt the protocol framing.
+
+            // Listen to stderr for error messages
+            if (childProcess.stderr) {
+              childProcess.stderr.on('data', (data: Buffer) => {
+                try {
+                  const message = data.toString().trim();
+                  if (message) {
+                    logError(`[MCPManager] MCP server stderr: ${message}`);
+                  }
+                } catch (error) {
+                  logError('[MCPManager] Error processing MCP server stderr:', error);
+                }
+              });
+            }
+
+            // Listen to process exit
+            childProcess.on('exit', (code: number, signal: string) => {
+              if (code !== null && code !== 0) {
+                logError(`[MCPManager] MCP server process exited with code ${code}`);
+              } else if (signal) {
+                logError(`[MCPManager] MCP server process killed with signal ${signal}`);
+              } else {
+                log(`[MCPManager] MCP server process exited normally`);
+              }
+            });
+
+            childProcess.on('error', (error: Error) => {
+              logError(`[MCPManager] MCP server process error: ${error.message}`);
+              logError(`[MCPManager] Error stack: ${error.stack}`);
+            });
+          } else {
+            logWarn(`[MCPManager] transport._process is not set after connect`);
+          }
+        } catch (e: unknown) {
+          logWarn(
+            `[MCPManager] Could not attach to MCP server process for logging: ${e instanceof Error ? e.message : String(e)}`
+          );
+        }
+      }
     } catch (error: unknown) {
       logError(`[MCPManager] Client.connect() failed:`, error);
       const connErr = error as { code?: unknown; name?: unknown; message?: unknown };

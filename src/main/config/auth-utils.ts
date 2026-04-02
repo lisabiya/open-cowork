@@ -76,7 +76,13 @@ export function normalizeOpenAICompatibleBaseUrl(baseUrl: string | undefined): s
 
     // OpenRouter has its own path convention (/api/v1) — handle separately.
     if (host.includes('openrouter.ai')) {
-      const pathname = parsed.pathname.replace(/\/+$/, '');
+      let pathname = parsed.pathname.replace(/\/+$/, '');
+      // Strip endpoint suffixes first (user may have pasted full endpoint)
+      pathname = pathname
+        .replace(/\/chat\/completions$/i, '')
+        .replace(/\/completions$/i, '')
+        .replace(/\/responses$/i, '')
+        .replace(/\/+$/, '');
       if (!pathname || pathname === '/') {
         parsed.pathname = '/api/v1';
         return parsed.toString().replace(/\/+$/, '');
@@ -85,19 +91,21 @@ export function normalizeOpenAICompatibleBaseUrl(baseUrl: string | undefined): s
         parsed.pathname = '/api/v1';
         return parsed.toString().replace(/\/+$/, '');
       }
+      parsed.pathname = pathname;
       return parsed.toString().replace(/\/+$/, '');
     }
 
     // Generic OpenAI-compatible provider normalization:
-    // 1. Strip trailing /chat/completions (user may have copy-pasted the full endpoint)
-    // 2. Ensure the URL ends with /v1
+    // Strip trailing endpoint suffixes that users may have copy-pasted from docs.
+    // Do NOT auto-append /v1 — some APIs use /v2, no version path, or custom paths.
     let pathname = parsed.pathname.replace(/\/+$/, '');
-    pathname = pathname.replace(/\/chat\/completions$/i, '').replace(/\/+$/, '');
+    pathname = pathname
+      .replace(/\/chat\/completions$/i, '')
+      .replace(/\/completions$/i, '')
+      .replace(/\/responses$/i, '')
+      .replace(/\/+$/, '');
 
-    if (!/\/v1$/i.test(pathname)) {
-      pathname = `${pathname}/v1`;
-    }
-    parsed.pathname = pathname;
+    parsed.pathname = pathname || '/';
     return parsed.toString().replace(/\/+$/, '');
   } catch {
     return normalized;

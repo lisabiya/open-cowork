@@ -50,6 +50,7 @@ import { getDefaultShell } from '../utils/shell-resolver';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
 import { configStore } from '../config/config-store';
+import { normalizeOpenAICompatibleBaseUrl } from '../config/auth-utils';
 import { resolveMessageEndPayload, toUserFacingErrorText } from './agent-runner-message-end';
 import {
   applyPiModelRuntimeOverrides,
@@ -1273,10 +1274,18 @@ ${hints.join('\n')}
         runtimeConfig.provider,
         runtimeConfig.customProtocol
       );
+
+      // Normalize base URL for OpenAI-compatible providers (strips copy-pasted endpoint suffixes)
+      const rawBaseUrl = runtimeConfig.baseUrl?.trim() || undefined;
+      const effectiveBaseUrl =
+        configProtocol === 'openai' && runtimeConfig.provider !== 'ollama'
+          ? normalizeOpenAICompatibleBaseUrl(rawBaseUrl) || rawBaseUrl
+          : rawBaseUrl;
+
       let usedSyntheticModel = false;
       let piModel = resolvePiRegistryModel(modelString, {
         configProvider: configProtocol,
-        customBaseUrl: runtimeConfig.baseUrl?.trim() || undefined,
+        customBaseUrl: effectiveBaseUrl,
         rawProvider: runtimeConfig.provider,
         customProtocol: runtimeConfig.customProtocol,
       });
@@ -1289,13 +1298,13 @@ ${hints.join('\n')}
           resolvedModelString: modelString,
           rawProvider: runtimeConfig.provider,
           routeProtocol: configProtocol,
-          baseUrl: runtimeConfig.baseUrl?.trim() || undefined,
+          baseUrl: effectiveBaseUrl,
         });
         piModel = buildSyntheticPiModel(
           synthetic.modelId,
           synthetic.provider,
           configProtocol,
-          runtimeConfig.baseUrl?.trim() || undefined,
+          effectiveBaseUrl,
           undefined,
           undefined,
           runtimeConfig.contextWindow,
@@ -1305,7 +1314,7 @@ ${hints.join('\n')}
         // that resolvePiRegistryModel applies to registry models
         piModel = applyPiModelRuntimeOverrides(piModel, {
           configProvider: configProtocol,
-          customBaseUrl: runtimeConfig.baseUrl?.trim() || undefined,
+          customBaseUrl: effectiveBaseUrl,
           rawProvider: runtimeConfig.provider,
           customProtocol: runtimeConfig.customProtocol,
         });

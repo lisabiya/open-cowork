@@ -170,9 +170,18 @@ async function runPiAiOneShot(
   const keyProvider = config.customProtocol || config.provider || 'anthropic';
   const parts = modelString.split('/');
   const provider = parts.length >= 2 ? parts[0] : keyProvider || 'anthropic';
+
+  // Normalize base URL for OpenAI-compatible providers (strips copy-pasted endpoint suffixes)
+  const routeProtocol = resolvePiRouteProtocol(config.provider, config.customProtocol);
+  const rawBaseUrl = config.baseUrl?.trim() || undefined;
+  const effectiveBaseUrl =
+    routeProtocol === 'openai' && config.provider !== 'ollama'
+      ? normalizeOpenAICompatibleBaseUrl(rawBaseUrl) || rawBaseUrl
+      : rawBaseUrl;
+
   let piModel = resolvePiRegistryModel(modelString, {
     configProvider: keyProvider,
-    customBaseUrl: config.baseUrl?.trim() || undefined,
+    customBaseUrl: effectiveBaseUrl,
     rawProvider: config.provider || 'anthropic',
     customProtocol: config.customProtocol,
   });
@@ -183,24 +192,24 @@ async function runPiAiOneShot(
       config.provider,
       config.customProtocol
     ) as CustomProtocolType;
-    const api = config.baseUrl?.trim() ? inferPiApi(effectiveProtocol) : undefined;
+    const api = effectiveBaseUrl ? inferPiApi(effectiveProtocol) : undefined;
     const synthetic = resolveSyntheticPiModelFallback({
       rawModel: config.model,
       resolvedModelString: modelString,
       rawProvider: config.provider,
       routeProtocol: effectiveProtocol,
-      baseUrl: config.baseUrl?.trim() || undefined,
+      baseUrl: effectiveBaseUrl,
     });
     piModel = buildSyntheticPiModel(
       synthetic.modelId,
       synthetic.provider,
       effectiveProtocol,
-      config.baseUrl?.trim() || '',
+      effectiveBaseUrl || '',
       api
     );
     piModel = applyPiModelRuntimeOverrides(piModel, {
       configProvider: keyProvider,
-      customBaseUrl: config.baseUrl?.trim() || undefined,
+      customBaseUrl: effectiveBaseUrl,
       rawProvider: config.provider || 'anthropic',
       customProtocol: config.customProtocol,
     });

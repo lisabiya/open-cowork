@@ -73,19 +73,31 @@ export function normalizeOpenAICompatibleBaseUrl(baseUrl: string | undefined): s
   try {
     const parsed = new URL(normalized);
     const host = parsed.hostname.toLowerCase();
-    if (!host.includes('openrouter.ai')) {
-      return normalized;
+
+    // OpenRouter has its own path convention (/api/v1) — handle separately.
+    if (host.includes('openrouter.ai')) {
+      const pathname = parsed.pathname.replace(/\/+$/, '');
+      if (!pathname || pathname === '/') {
+        parsed.pathname = '/api/v1';
+        return parsed.toString().replace(/\/+$/, '');
+      }
+      if (/^\/api$/i.test(pathname)) {
+        parsed.pathname = '/api/v1';
+        return parsed.toString().replace(/\/+$/, '');
+      }
+      return parsed.toString().replace(/\/+$/, '');
     }
 
-    const pathname = parsed.pathname.replace(/\/+$/, '');
-    if (!pathname || pathname === '/') {
-      parsed.pathname = '/api/v1';
-      return parsed.toString().replace(/\/+$/, '');
+    // Generic OpenAI-compatible provider normalization:
+    // 1. Strip trailing /chat/completions (user may have copy-pasted the full endpoint)
+    // 2. Ensure the URL ends with /v1
+    let pathname = parsed.pathname.replace(/\/+$/, '');
+    pathname = pathname.replace(/\/chat\/completions$/i, '').replace(/\/+$/, '');
+
+    if (!/\/v1$/i.test(pathname)) {
+      pathname = `${pathname}/v1`;
     }
-    if (/^\/api$/i.test(pathname)) {
-      parsed.pathname = '/api/v1';
-      return parsed.toString().replace(/\/+$/, '');
-    }
+    parsed.pathname = pathname;
     return parsed.toString().replace(/\/+$/, '');
   } catch {
     return normalized;

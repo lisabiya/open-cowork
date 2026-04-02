@@ -4,6 +4,7 @@ import { PROVIDER_PRESETS, type AppConfig, type CustomProtocolType } from '../co
 import {
   normalizeAnthropicBaseUrl,
   normalizeOllamaBaseUrl,
+  normalizeOpenAICompatibleBaseUrl,
   resolveOllamaCredentials,
   resolveOpenAICredentials,
   shouldAllowEmptyAnthropicApiKey,
@@ -113,9 +114,11 @@ function buildProbeConfig(input: ApiTestInput, config: AppConfig): AppConfig {
   const effectiveBaseUrl =
     input.provider === 'ollama'
       ? normalizeOllamaBaseUrl(effectiveRawBaseUrl) || effectiveRawBaseUrl
-      : resolvedCustomProtocol === 'openai' || resolvedCustomProtocol === 'gemini'
-        ? effectiveRawBaseUrl
-        : normalizeAnthropicBaseUrl(effectiveRawBaseUrl);
+      : resolvedCustomProtocol === 'openai'
+        ? normalizeOpenAICompatibleBaseUrl(effectiveRawBaseUrl) || effectiveRawBaseUrl
+        : resolvedCustomProtocol === 'gemini'
+          ? effectiveRawBaseUrl
+          : normalizeAnthropicBaseUrl(effectiveRawBaseUrl);
   const effectiveApiKey = resolveProbeApiKey(
     input,
     resolvedCustomProtocol,

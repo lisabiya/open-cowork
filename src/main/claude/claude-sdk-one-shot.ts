@@ -26,7 +26,7 @@ import {
 const NETWORK_ERROR_RE =
   /enotfound|econnrefused|etimedout|eai_again|enetunreach|timed?\s*out|timeout|abort|network\s*error/i;
 const AUTH_ERROR_RE =
-  /authentication[_\s-]?failed|\bunauthorized\b|invalid[_\s-]?api[_\s-]?key|\bforbidden\b|\b401\b|\b403\b/i;
+  /authentication[_\s-]?failed|\bunauthorized\b|invalid[_\s-]?api[_\s-]?key|api[_\s-]?key[_\s-]?invalid|api[_\s]+key[_\s]+not[_\s]+valid|\bforbidden\b|permission[_\s-]?denied|\b401\b|\b403\b/i;
 const RATE_LIMIT_RE = /rate[_\s-]?limit|too\s+many\s+requests|429/i;
 const SERVER_ERROR_RE = /server[_\s-]?error|internal\s+server\s+error|\b5\d\d\b/i;
 const PROBE_ACK = 'sdk_probe_ok';
@@ -254,6 +254,14 @@ async function runPiAiOneShot(
     { apiKey: apiKey || undefined }
   );
 
+  // pi-ai resolves (not rejects) on provider errors — the error details
+  // live in stopReason/errorMessage on the response object.  Surface them
+  // so callers (probe, title-gen) get a meaningful error via mapPiAiError.
+  if (response.stopReason === 'error' || response.stopReason === 'aborted') {
+    logWarn('[OneShot] Provider error-as-resolve:', response.stopReason, response.errorMessage);
+    throw new Error(response.errorMessage || 'Provider returned an error');
+  }
+
   // Extract text and thinking content from response
   const textBlocks = response.content.filter((b) => b.type === 'text');
   const thinkingBlocks = response.content.filter((b) => b.type === 'thinking');
@@ -308,8 +316,8 @@ export async function probeWithClaudeSdk(
   const probeStart = Date.now();
   try {
     const result = await runPiAiOneShot(
-      `Please reply with exactly: ${PROBE_ACK}`,
-      `You are a connectivity probe. Do not use tools. Reply with exactly: ${PROBE_ACK}`,
+      `What is 2+2? After answering, also include this token: ${PROBE_ACK}`,
+      `You are a connectivity test. Answer briefly, then include the token: ${PROBE_ACK}`,
       probeConfig
     );
 

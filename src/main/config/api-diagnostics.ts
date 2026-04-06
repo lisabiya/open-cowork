@@ -303,10 +303,45 @@ async function stepTls(
 }
 
 async function stepAuth(input: DiagnosticInput, step: DiagnosticStep): Promise<void> {
-  // Gemini has no simple auth check endpoint
+  // Gemini: verify key via models.get() — lightweight and always available
   if (isGeminiProtocol(input)) {
-    step.status = 'skip';
-    step.latencyMs = 0;
+    const start = Date.now();
+    const apiKey = input.apiKey?.trim() || '';
+
+    if (!apiKey) {
+      step.status = 'fail';
+      step.error = 'No API key provided';
+      step.fix = 'missing_api_key';
+      step.latencyMs = Date.now() - start;
+      return;
+    }
+
+    try {
+      const { GoogleGenAI } = (await import('@google/genai')) as typeof import('@google/genai');
+      const clientBaseUrl = resolveClientBaseUrl(input);
+      const httpOptions = { ...(clientBaseUrl ? { baseUrl: clientBaseUrl } : {}), timeout: 15000 };
+      const client = new GoogleGenAI({ apiKey, httpOptions });
+      const modelToCheck = input.model?.trim() || 'gemini-2.0-flash';
+      await client.models.get({ model: modelToCheck });
+      step.status = 'ok';
+    } catch (err) {
+      const e = getApiErrorInfo(err);
+      if (e.status === 404) {
+        // Custom Gemini proxy may not implement models.get — treat like OpenAI 404 path
+        step.status = 'ok';
+        step.fix = 'models_get_not_supported';
+        log(
+          '[Diagnostics] Gemini auth: models.get returned 404 — proxy may not support this endpoint, continuing to model check'
+        );
+      } else {
+        step.status = 'fail';
+        step.error = e.message;
+        step.fix =
+          e.status === 401 || e.status === 403 ? 'auth_invalid_key' : 'auth_request_failed';
+      }
+    }
+
+    step.latencyMs = Date.now() - start;
     return;
   }
 

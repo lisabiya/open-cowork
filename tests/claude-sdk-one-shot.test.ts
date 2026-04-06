@@ -70,7 +70,15 @@ vi.mock('../src/main/claude/pi-model-resolution', () => ({
     }
     return provider || 'anthropic';
   },
-  resolvePiModelString: ({ model, customProtocol, provider }: { model?: string; customProtocol?: string; provider?: string }) => {
+  resolvePiModelString: ({
+    model,
+    customProtocol,
+    provider,
+  }: {
+    model?: string;
+    customProtocol?: string;
+    provider?: string;
+  }) => {
     const value = model?.trim() || 'claude-sonnet-4-6';
     if (value.includes('/')) {
       return value;
@@ -97,9 +105,11 @@ vi.mock('../src/main/claude/pi-model-resolution', () => ({
     const resolved = resolvedModelString.trim();
     const parts = resolved.split('/');
     const strippedModelId = parts.length >= 2 ? parts.slice(1).join('/') : resolved;
-    const preserve = rawProvider === 'openrouter' && routeProtocol === 'openai' && raw.includes('/');
+    const preserve =
+      rawProvider === 'openrouter' && routeProtocol === 'openai' && raw.includes('/');
     return {
-      provider: rawProvider === 'openrouter' ? 'openrouter' : (parts[0] || rawProvider || routeProtocol),
+      provider:
+        rawProvider === 'openrouter' ? 'openrouter' : parts[0] || rawProvider || routeProtocol,
       modelId: preserve ? resolved : strippedModelId,
       baseUrl,
     };
@@ -299,9 +309,7 @@ describe('probeWithClaudeSdk', () => {
   });
 
   it('maps ECONNREFUSED to ollama_not_running for ollama provider', async () => {
-    mocks.completeSimple.mockRejectedValue(
-      new Error('connect ECONNREFUSED 127.0.0.1:11434')
-    );
+    mocks.completeSimple.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:11434'));
 
     const result = await probeWithClaudeSdk(
       {
@@ -325,9 +333,7 @@ describe('probeWithClaudeSdk', () => {
   });
 
   it('maps ECONNREFUSED to network_error for non-ollama provider', async () => {
-    mocks.completeSimple.mockRejectedValue(
-      new Error('connect ECONNREFUSED 127.0.0.1:8080')
-    );
+    mocks.completeSimple.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:8080'));
 
     const result = await probeWithClaudeSdk(
       {
@@ -382,7 +388,7 @@ describe('probeWithClaudeSdk', () => {
       expect.any(String),
       'openai',
       'http://localhost:11434/v1',
-      'openai-completions',
+      'openai-completions'
     );
   });
 
@@ -418,7 +424,130 @@ describe('probeWithClaudeSdk', () => {
       'openrouter',
       'openai',
       'https://openrouter.ai/api/v1',
-      'openai-completions',
+      'openai-completions'
     );
+  });
+
+  // --- Gemini empty_probe_response regression tests (issue #88) ---
+
+  it('surfaces provider error-as-resolve instead of empty_probe_response', async () => {
+    mocks.completeSimple.mockResolvedValue({
+      content: [],
+      stopReason: 'error',
+      errorMessage: 'API key not valid. Please pass a valid API key.',
+    });
+
+    const result = await probeWithClaudeSdk(
+      { provider: 'gemini', apiKey: 'AIza-bad-key', model: 'gemini-2.5-flash' },
+      createConfig({
+        provider: 'gemini',
+        customProtocol: 'gemini',
+        apiKey: 'AIza-bad-key',
+        model: 'gemini-2.5-flash',
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.details).not.toBe('empty_probe_response');
+    expect(result.errorType).toBe('unauthorized');
+    expect(result.details).toContain('API key not valid');
+  });
+
+  it('surfaces aborted stopReason instead of empty_probe_response', async () => {
+    mocks.completeSimple.mockResolvedValue({
+      content: [],
+      stopReason: 'aborted',
+      errorMessage: 'Request was aborted',
+    });
+
+    const result = await probeWithClaudeSdk(
+      { provider: 'openai', apiKey: 'sk-test', model: 'gpt-5.4' },
+      createConfig()
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.details).not.toBe('empty_probe_response');
+  });
+
+  it('maps Gemini API_KEY_INVALID to unauthorized error type', async () => {
+    mocks.completeSimple.mockResolvedValue({
+      content: [],
+      stopReason: 'error',
+      errorMessage: 'API_KEY_INVALID',
+    });
+
+    const result = await probeWithClaudeSdk(
+      { provider: 'gemini', apiKey: 'bad', model: 'gemini-2.5-flash' },
+      createConfig({
+        provider: 'gemini',
+        customProtocol: 'gemini',
+        apiKey: 'bad',
+        model: 'gemini-2.5-flash',
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errorType).toBe('unauthorized');
+  });
+
+  it('maps Gemini PERMISSION_DENIED to unauthorized error type', async () => {
+    mocks.completeSimple.mockResolvedValue({
+      content: [],
+      stopReason: 'error',
+      errorMessage: 'PERMISSION_DENIED: The caller does not have permission',
+    });
+
+    const result = await probeWithClaudeSdk(
+      { provider: 'gemini', apiKey: 'bad', model: 'gemini-2.5-flash' },
+      createConfig({
+        provider: 'gemini',
+        customProtocol: 'gemini',
+        apiKey: 'bad',
+        model: 'gemini-2.5-flash',
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errorType).toBe('unauthorized');
+  });
+
+  it('falls back to generic unknown error for unrecognized provider error', async () => {
+    mocks.completeSimple.mockResolvedValue({
+      content: [],
+      stopReason: 'error',
+      errorMessage: 'An unknown error occurred',
+    });
+
+    const result = await probeWithClaudeSdk(
+      { provider: 'gemini', apiKey: 'key', model: 'gemini-2.5-flash' },
+      createConfig({
+        provider: 'gemini',
+        customProtocol: 'gemini',
+        apiKey: 'key',
+        model: 'gemini-2.5-flash',
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errorType).toBe('unknown');
+    expect(result.details).toBe('An unknown error occurred');
+  });
+
+  it('accepts probe ack with math answer prefix from question-style prompt', async () => {
+    mocks.completeSimple.mockResolvedValue({
+      content: [{ type: 'text', text: '2+2 = 4\n\nsdk_probe_ok' }],
+    });
+
+    const result = await probeWithClaudeSdk(
+      { provider: 'gemini', apiKey: 'key', model: 'gemini-2.5-flash' },
+      createConfig({
+        provider: 'gemini',
+        customProtocol: 'gemini',
+        apiKey: 'key',
+        model: 'gemini-2.5-flash',
+      })
+    );
+
+    expect(result.ok).toBe(true);
   });
 });

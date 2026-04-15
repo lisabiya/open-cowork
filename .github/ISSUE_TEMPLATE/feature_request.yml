@@ -1,6 +1,6 @@
 name: Feature Request
 description: Suggest a new feature or improvement for Open Cowork
-labels: ["enhancement"]
+labels: ['enhancement']
 body:
   - type: markdown
     attributes:
@@ -21,7 +21,7 @@ body:
     attributes:
       label: Proposed Solution
       description: Describe the feature you'd like to see. Be as specific as possible.
-      placeholder: "It would be great if..."
+      placeholder: 'It would be great if...'
     validations:
       required: true
 
@@ -47,6 +47,17 @@ body:
         - Other
     validations:
       required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Which platform does this feature apply to?
+      options:
+        - macOS
+        - Windows
+        - Both
+        - N/A
 
   - type: textarea
     id: context

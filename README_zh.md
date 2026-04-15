@@ -27,6 +27,10 @@
 
 ---
 
+Open Cowork 是一款免费开源的 AI 智能助手桌面应用，支持 Windows 和 macOS 一键安装，无需任何编程知识。它将 Claude Code、OpenAI、Gemini、DeepSeek 等多种 AI 模型封装为友好的图形界面，提供虚拟机级别的沙盒隔离（Windows 使用 WSL2，macOS 使用 Lima）、内置 Skills 技能系统（可生成 PPTX、DOCX、XLSX、PDF 文档）、MCP 协议集成（连接浏览器、Notion 等桌面应用）、GUI 自动化操作，以及通过飞书和 Slack 进行远程控制。Open Cowork 是 Claude Cowork 的开源实现，让每个人都能轻松使用 AI 驱动的桌面自动化。
+
+---
+
 ## 📖 简介
 
 **Open Cowork** 是 **Claude Cowork** 的开源实现，提供 **Windows** 和 **macOS** 一键安装包，无需任何编程知识。
@@ -273,6 +277,40 @@ open-cowork/
 - [x] **界面优化**：UI 增强，支持中英文切换
 - [ ] **记忆优化**：改进长会话的上下文管理和跨会话记忆。
 - [ ] **全新特征**：敬请期待！
+
+---
+
+## ❓ 常见问题
+
+**Open Cowork 是什么？**
+Open Cowork 是一款免费开源的桌面应用，为用户提供本地 AI 智能助手工作空间。它将 AI 模型（Claude、GPT、Gemini、DeepSeek 等）封装为图形界面，提供 Windows 和 macOS 一键安装包，无需命令行或编程知识。
+
+**Open Cowork 和 Claude Cowork 有什么区别？**
+Open Cowork 是 Claude Cowork 的开源实现，在此基础上增加了多模型支持（不只是 Claude）、GUI 自动化操作、飞书/Slack 远程控制，以及虚拟机级别的沙盒隔离。详见[功能对比表](#核心特性)。
+
+**支持哪些 AI 模型？**
+支持 Claude（通过 Anthropic 或 OpenRouter）、OpenAI 兼容接口，以及国产大模型包括智谱 GLM、MiniMax、Kimi 等。任何提供 OpenAI 兼容 API 的服务商都可以配置使用。
+
+**Open Cowork 免费吗？**
+是的。Open Cowork 本身完全免费，采用 MIT 开源协议。你只需为所选 AI 模型服务商的 API 调用付费。
+
+**支持 Linux 吗？**
+目前提供 Windows 和 macOS 的预构建安装包。Linux 用户可以通过源码编译方式使用，详见[源码编译](#下载与安装)章节。
+
+**沙盒隔离是怎么工作的？**
+Open Cowork 提供多级安全保护：所有平台均有基础的路径限制，Windows 和 macOS 还支持虚拟机级别隔离（分别使用 WSL2 和 Lima）。启用虚拟机后，所有命令在隔离的 Linux 环境中执行，保护你的宿主机系统安全。
+
+**什么是 Skills？如何创建自定义技能？**
+Skills 是内置的工作流模板，用于完成特定任务，如生成 PPTX、DOCX、PDF 或 XLSX 文件。Open Cowork 在 `.claude/skills/` 目录下预置了默认技能，并提供 `skill-creator` 工具帮助你构建自定义技能。
+
+**什么是 MCP？怎么使用？**
+MCP（Model Context Protocol，模型上下文协议）让 AI 能连接外部工具和服务。Open Cowork 支持 MCP 连接器，可对接浏览器、Notion 等桌面应用，将 AI 的能力扩展到文件管理和编程之外。
+
+**如何设置飞书或 Slack 远程控制？**
+Open Cowork 支持通过飞书和 Slack 进行远程控制，你可以在协作平台上发送指令并接收执行结果。请在应用设置中查看远程控制配置选项。
+
+**数据安全吗？会不会把数据发送到外部服务器？**
+Open Cowork 完全在本地运行，你的文件保留在你的工作区内。唯一的外部通信是与你配置的 AI 模型 API（如 Anthropic、OpenRouter）之间的交互。没有任何数据被发送到 Open Cowork 的服务器。
 
 ---
 

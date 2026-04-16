@@ -92,6 +92,9 @@ export interface ThinkingContent {
 export interface TokenUsage {
   input: number;
   output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cacheHit?: boolean;
 }
 
 // Trace types for visualization

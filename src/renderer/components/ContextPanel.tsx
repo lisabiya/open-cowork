@@ -30,9 +30,30 @@ import {
   Copy,
   Layers,
 } from 'lucide-react';
-import type { TraceStep, MCPServerInfo } from '../types';
+import type { TraceStep, MCPServerInfo, TokenUsage } from '../types';
 
 const EMPTY_STEPS: TraceStep[] = [];
+
+interface CacheDiagnosticsRecord {
+  version: 1;
+  provider: string;
+  modelId: string;
+  sessionReuse: boolean;
+  coldStart: boolean;
+  historySerializationVersion?: string;
+  runtimeSignatureFingerprint: string;
+  runtimeSignatureChangeReasons: string[];
+  historyMessagesAvailable: number;
+  historyMessagesInjected: number;
+  historyMessagesOmitted: number;
+  excludedCurrentTurnUser?: boolean;
+  historyCharBudget?: number;
+  historyPreambleFingerprint?: string;
+  systemPromptFingerprint: string;
+  toolsFingerprint: string;
+  fullRequestPrefixFingerprint: string;
+  cacheUsage?: TokenUsage;
+}
 
 export function ContextPanel() {
   const { t } = useTranslation();
@@ -92,14 +113,33 @@ export function ContextPanel() {
   const tokenUsage = useMemo(() => {
     let input = 0;
     let output = 0;
+    let cacheRead = 0;
+    let cacheWrite = 0;
     for (const msg of messages) {
       if (msg.tokenUsage) {
         input += msg.tokenUsage.input || 0;
         output += msg.tokenUsage.output || 0;
+        cacheRead += msg.tokenUsage.cacheRead || 0;
+        cacheWrite += msg.tokenUsage.cacheWrite || 0;
       }
     }
-    return { input, output, total: input + output };
+    return { input, output, cacheRead, cacheWrite, total: input + output };
   }, [messages]);
+
+  const latestCacheDiagnostics = useMemo(() => {
+    for (let i = steps.length - 1; i >= 0; i -= 1) {
+      const step = steps[i];
+      if (!step.title.startsWith('Cache diagnostics') || !step.content) {
+        continue;
+      }
+      try {
+        return JSON.parse(step.content) as CacheDiagnosticsRecord;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [steps]);
 
   // Context usage: last message's input tokens ≈ current context occupation
   const contextUsage = useMemo(() => {
@@ -314,6 +354,57 @@ export function ContextPanel() {
               total: formatTokenCount(contextUsage.total),
             })}
           </p>
+        </div>
+      )}
+
+      {(latestCacheDiagnostics || tokenUsage.cacheRead > 0 || tokenUsage.cacheWrite > 0) && (
+        <div className="px-4 py-2.5 border-b border-border-muted space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
+              Prompt Cache
+            </span>
+            <span className={`text-xs font-medium ${
+              latestCacheDiagnostics?.cacheUsage?.cacheHit === true
+                ? 'text-success'
+                : latestCacheDiagnostics?.cacheUsage?.cacheHit === false
+                  ? 'text-warning'
+                  : 'text-text-muted'
+            }`}>
+              {latestCacheDiagnostics?.cacheUsage?.cacheHit === true
+                ? 'hit'
+                : latestCacheDiagnostics?.cacheUsage?.cacheHit === false
+                  ? 'miss'
+                  : 'n/a'}
+            </span>
+          </div>
+          <p className="text-xs text-text-muted">
+            Read {formatTokenCount(tokenUsage.cacheRead)} · Write {formatTokenCount(tokenUsage.cacheWrite)}
+          </p>
+          {latestCacheDiagnostics && (
+            <>
+              <p className="text-xs text-text-muted">
+                {latestCacheDiagnostics.coldStart ? 'cold start' : 'warm session'} · reuse{' '}
+                {latestCacheDiagnostics.sessionReuse ? 'yes' : 'no'}
+              </p>
+              {latestCacheDiagnostics.historySerializationVersion && (
+                <p className="text-xs text-text-muted">
+                  History {latestCacheDiagnostics.historySerializationVersion} · current turn excluded{' '}
+                  {latestCacheDiagnostics.excludedCurrentTurnUser ? 'yes' : 'no'}
+                </p>
+              )}
+              <p className="text-xs text-text-muted">
+                FP sys {formatFingerprint(latestCacheDiagnostics.systemPromptFingerprint)} · hist{' '}
+                {formatFingerprint(latestCacheDiagnostics.historyPreambleFingerprint)} · tools{' '}
+                {formatFingerprint(latestCacheDiagnostics.toolsFingerprint)} · full{' '}
+                {formatFingerprint(latestCacheDiagnostics.fullRequestPrefixFingerprint)}
+              </p>
+              {latestCacheDiagnostics.runtimeSignatureChangeReasons.length > 0 && (
+                <p className="text-xs text-text-muted">
+                  Session reset: {latestCacheDiagnostics.runtimeSignatureChangeReasons.join(', ')}
+                </p>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -622,4 +713,9 @@ function formatTokenCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
+}
+
+function formatFingerprint(value?: string): string {
+  if (!value) return 'none';
+  return value.slice(0, 10);
 }

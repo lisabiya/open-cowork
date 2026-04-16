@@ -39,6 +39,7 @@ import {
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'child_process';
 import { app } from 'electron';
 import { setMaxListeners } from 'node:events';
@@ -59,7 +60,10 @@ import {
   resolvePiRouteProtocol,
   resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
-import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
+import {
+  buildPiSessionRuntimeSignature,
+  diffPiSessionRuntimeSignatures,
+} from './pi-session-runtime';
 import { ThinkTagStreamParser } from './think-tag-parser';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { executeWindowsBash } from '../tools/windows-bash-executor';
@@ -67,18 +71,133 @@ import { resolvePreferredWindowsShell, getWindowsRegistryPathEntries } from '../
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
+const DEFAULT_HISTORY_CHARS_PER_TOKEN = 4;
+const DEFAULT_COLD_START_HISTORY_BUDGET_RATIO = 0.3;
+const SMALL_CONTEXT_HISTORY_BUDGET_RATIO = 0.15;
+const MAX_COLD_START_HISTORY_TURNS = 48;
 
-/**
- * Estimate chars-per-token ratio based on content language.
- * CJK characters tokenize at ~1.5 chars/token vs ~4 for English.
- */
-function estimateCharsPerToken(sampleText: string): number {
-  if (!sampleText || sampleText.length === 0) return 4;
-  const sample = sampleText.substring(0, 500);
-  const cjkCount = (sample.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || [])
-    .length;
-  const cjkRatio = cjkCount / sample.length;
-  return 4 - cjkRatio * 2.5; // Range: 1.5 (pure CJK) ~ 4 (pure English)
+interface StableHistoryEntry {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+interface StableHistoryPreambleResult {
+  preamble: string;
+  availableMessages: number;
+  injectedMessages: number;
+  omittedMessages: number;
+  excludedCurrentTurnUser: boolean;
+  historyCharBudget: number;
+}
+
+function normalizeHistoryText(text: string): string {
+  return text.replace(/\r\n?/g, '\n');
+}
+
+function escapeXmlText(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function extractStableHistoryEntries(messages: Message[]): StableHistoryEntry[] {
+  const entries: StableHistoryEntry[] = [];
+
+  for (const message of messages) {
+    if (message.role !== 'user' && message.role !== 'assistant') {
+      continue;
+    }
+
+    const text = message.content
+      .filter((content) => content.type === 'text')
+      .map((content) => normalizeHistoryText((content as { text: string }).text))
+      .join('\n');
+
+    if (!text.trim()) {
+      continue;
+    }
+
+    entries.push({
+      role: message.role,
+      text,
+    });
+  }
+
+  return entries;
+}
+
+function serializeStableHistoryTurn(entry: StableHistoryEntry): string {
+  return `<turn role="${entry.role}">${escapeXmlText(entry.text)}</turn>`;
+}
+
+function buildStableConversationHistoryPreamble(input: {
+  messages: Message[];
+  provider: string;
+  contextWindow: number;
+}): StableHistoryPreambleResult {
+  const historyEntries = extractStableHistoryEntries(input.messages);
+  const excludedCurrentTurnUser =
+    historyEntries.length > 0 && historyEntries[historyEntries.length - 1]?.role === 'user';
+  const candidateEntries = excludedCurrentTurnUser ? historyEntries.slice(0, -1) : historyEntries;
+
+  if (candidateEntries.length === 0) {
+    return {
+      preamble: '',
+      availableMessages: 0,
+      injectedMessages: 0,
+      omittedMessages: 0,
+      excludedCurrentTurnUser,
+      historyCharBudget: 0,
+    };
+  }
+
+  const historyBudgetRatio =
+    input.provider === 'ollama' && input.contextWindow < 16384
+      ? SMALL_CONTEXT_HISTORY_BUDGET_RATIO
+      : DEFAULT_COLD_START_HISTORY_BUDGET_RATIO;
+  const historyTokenBudget = Math.floor(input.contextWindow * historyBudgetRatio);
+  const historyCharBudget = Math.max(
+    1024,
+    Math.floor(historyTokenBudget * DEFAULT_HISTORY_CHARS_PER_TOKEN)
+  );
+
+  const selectedEntries: StableHistoryEntry[] = [];
+  let charCount = 0;
+
+  for (let i = candidateEntries.length - 1; i >= 0; i -= 1) {
+    if (selectedEntries.length >= MAX_COLD_START_HISTORY_TURNS) {
+      break;
+    }
+
+    const entry = candidateEntries[i];
+    const serialized = serializeStableHistoryTurn(entry);
+    const nextCharCount = charCount + serialized.length;
+
+    if (selectedEntries.length > 0 && nextCharCount > historyCharBudget) {
+      break;
+    }
+
+    selectedEntries.unshift(entry);
+    charCount = nextCharCount;
+  }
+
+  const omittedMessages = candidateEntries.length - selectedEntries.length;
+  const historyNote = omittedMessages > 0 ? `[${omittedMessages} older messages omitted]\n` : '';
+  const preamble = `<conversation_history>\n${historyNote}${selectedEntries
+    .map((entry) => serializeStableHistoryTurn(entry))
+    .join('\n')}\n</conversation_history>`;
+
+  return {
+    preamble,
+    availableMessages: candidateEntries.length,
+    injectedMessages: selectedEntries.length,
+    omittedMessages,
+    excludedCurrentTurnUser,
+    historyCharBudget,
+  };
 }
 
 // Bundled node/npx paths never change at runtime — resolve once.
@@ -319,6 +438,100 @@ function safeStringify(value: unknown, space = 0): string {
   }
 }
 
+function normalizeForStableJson(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value === null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  if (typeof value === 'undefined') {
+    return '[undefined]';
+  }
+  if (typeof value === 'function') {
+    return `[Function:${value.name || 'anonymous'}]`;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeForStableJson(item, seen));
+  }
+  if (typeof value === 'object') {
+    if (seen.has(value)) {
+      return '[Circular]';
+    }
+    seen.add(value);
+    const entries = Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nestedValue]) => [key, normalizeForStableJson(nestedValue, seen)]);
+    seen.delete(value);
+    return Object.fromEntries(entries);
+  }
+  return String(value);
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(normalizeForStableJson(value));
+}
+
+function fingerprintText(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function fingerprintValue(value: unknown): string {
+  return fingerprintText(stableStringify(value));
+}
+
+function pickUsageNumber(
+  usage: Record<string, unknown>,
+  keys: string[],
+): number | undefined {
+  for (const key of keys) {
+    const value = usage[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+interface CacheDiagnosticsPayload {
+  version: 1;
+  provider: string;
+  modelId: string;
+  sessionReuse: boolean;
+  coldStart: boolean;
+  historySerializationVersion: 'stable-v1';
+  runtimeSignatureFingerprint: string;
+  runtimeSignatureChangeReasons: string[];
+  historyMessagesAvailable: number;
+  historyMessagesInjected: number;
+  historyMessagesOmitted: number;
+  excludedCurrentTurnUser: boolean;
+  historyCharBudget: number;
+  historyPreambleFingerprint?: string;
+  systemPromptFingerprint: string;
+  toolsFingerprint: string;
+  fullRequestPrefixFingerprint: string;
+  cacheUsage?: Message['tokenUsage'];
+}
+
+function describeToolForFingerprint(
+  tool: ToolDefinition | { name?: string; type?: string; description?: string; parameters?: unknown },
+): Record<string, unknown> {
+  const typedTool = tool as {
+    name?: string;
+    type?: string;
+    description?: string;
+    parameters?: unknown;
+  };
+  return {
+    name: typedTool.name || typedTool.type || 'unknown',
+    description: typedTool.description || '',
+    parametersFingerprint:
+      typedTool.parameters !== undefined ? fingerprintValue(typedTool.parameters) : '',
+  };
+}
+
 function summarizeMessageForLog(message: unknown): Record<string, unknown> {
   if (!message || typeof message !== 'object') {
     return { present: false };
@@ -373,23 +586,53 @@ function normalizeTokenUsage(usage: unknown): Message['tokenUsage'] | undefined 
     return undefined;
   }
 
-  const raw = usage as {
-    input?: unknown;
-    output?: unknown;
-    input_tokens?: unknown;
-    output_tokens?: unknown;
-    inputTokens?: unknown;
-    outputTokens?: unknown;
-  };
+  const raw = usage as Record<string, unknown>;
 
-  const input = raw.input ?? raw.input_tokens ?? raw.inputTokens;
-  const output = raw.output ?? raw.output_tokens ?? raw.outputTokens;
+  const input = pickUsageNumber(raw, ['input', 'input_tokens', 'inputTokens']);
+  const output = pickUsageNumber(raw, ['output', 'output_tokens', 'outputTokens']);
+  const cacheRead = pickUsageNumber(raw, [
+    'cacheRead',
+    'cache_read',
+    'cache_read_tokens',
+    'cache_read_input_tokens',
+    'cacheReadTokens',
+    'cacheReadInputTokens',
+  ]);
+  const cacheWrite = pickUsageNumber(raw, [
+    'cacheWrite',
+    'cache_write',
+    'cache_write_tokens',
+    'cache_creation_input_tokens',
+    'cacheWriteTokens',
+    'cacheWriteInputTokens',
+    'cacheCreationInputTokens',
+  ]);
 
-  if (typeof input !== 'number' || typeof output !== 'number') {
+  if (
+    typeof input !== 'number' &&
+    typeof output !== 'number' &&
+    typeof cacheRead !== 'number' &&
+    typeof cacheWrite !== 'number'
+  ) {
     return undefined;
   }
 
-  return { input, output };
+  const normalized: Message['tokenUsage'] = {
+    input: input ?? 0,
+    output: output ?? 0,
+  };
+  if (typeof cacheRead === 'number') {
+    normalized.cacheRead = cacheRead;
+    normalized.cacheHit = cacheRead > 0;
+  }
+  if (typeof cacheWrite === 'number') {
+    normalized.cacheWrite = cacheWrite;
+    if (normalized.cacheHit === undefined) {
+      normalized.cacheHit = false;
+    }
+  }
+
+  return normalized;
 }
 
 interface AgentRunnerOptions {
@@ -1587,8 +1830,17 @@ ${hints.join('\n')}
       // For cold starts (new SDK session with existing DB history), we inject
       // a token-budgeted summary of recent history as a preamble.
       let cachedSession = this.piSessions.get(session.id);
+      let runtimeSignatureChangeReasons: string[] = [];
       if (cachedSession && cachedSession.runtimeSignature !== sessionRuntimeSignature) {
+        runtimeSignatureChangeReasons = diffPiSessionRuntimeSignatures(
+          cachedSession.runtimeSignature,
+          sessionRuntimeSignature
+        );
         logCtx('[ClaudeAgentRunner] Runtime changed, recreating cached pi session:', session.id);
+        logCtx(
+          '[ClaudeAgentRunner] Runtime signature change reasons:',
+          runtimeSignatureChangeReasons.join(', ') || '(unknown)'
+        );
         try {
           cachedSession.session.dispose();
         } catch (disposeError) {
@@ -1599,6 +1851,12 @@ ${hints.join('\n')}
       }
 
       let contextualPrompt = prompt;
+      let historyPreamble = '';
+      let historyMessagesAvailable = 0;
+      let historyMessagesInjected = 0;
+      let historyMessagesOmitted = 0;
+      let excludedCurrentTurnUser = false;
+      let historyCharBudget = 0;
       if (!cachedSession) {
         // Cold start: inject recent history into prompt if available
         const conversationMessages = existingMessages.filter(
@@ -1608,62 +1866,33 @@ ${hints.join('\n')}
         const textOnlyMessages = conversationMessages.filter(
           (msg) => !msg.content.some((c) => (c as { type?: string }).type === 'image')
         );
-        const historyMessages =
-          textOnlyMessages.length > 0 &&
-          textOnlyMessages[textOnlyMessages.length - 1]?.role === 'user'
-            ? textOnlyMessages.slice(0, -1)
-            : textOnlyMessages;
-
-        if (historyMessages.length > 0) {
-          // Content-aware chars-per-token estimation (CJK text uses ~1.5 chars/token vs ~4 for English)
+        if (textOnlyMessages.length > 0) {
           const contextWindow = piModel.contextWindow || 128000;
-          const historyBudgetRatio = provider === 'ollama' && contextWindow < 16384 ? 0.15 : 0.3;
-          const historyTokenBudget = Math.floor(contextWindow * historyBudgetRatio);
+          const historyBuild = buildStableConversationHistoryPreamble({
+            messages: textOnlyMessages,
+            provider,
+            contextWindow,
+          });
 
-          // Sample recent messages to estimate chars-per-token ratio
-          const sampleText = historyMessages
-            .slice(-3)
-            .flatMap((m) =>
-              m.content.filter((c) => c.type === 'text').map((c) => (c as { text: string }).text)
-            )
-            .join('');
-          const charsPerToken = estimateCharsPerToken(sampleText);
-          const historyCharBudget = Math.floor(historyTokenBudget * charsPerToken);
+          historyMessagesAvailable = historyBuild.availableMessages;
+          historyMessagesInjected = historyBuild.injectedMessages;
+          historyMessagesOmitted = historyBuild.omittedMessages;
+          excludedCurrentTurnUser = historyBuild.excludedCurrentTurnUser;
+          historyCharBudget = historyBuild.historyCharBudget;
 
-          const historyItems: string[] = [];
-          let charCount = 0;
-          // Build from newest to oldest, then reverse
-          for (let i = historyMessages.length - 1; i >= 0; i--) {
-            const msg = historyMessages[i];
-            const textContent = msg.content
-              .filter((c) => c.type === 'text')
-              .map((c) => (c as { text: string }).text)
-              .join('\n');
-            const roleTag = msg.role === 'user' ? 'user' : 'assistant';
-            const entry = `<turn role="${roleTag}">${textContent}</turn>`;
-            if (charCount + entry.length > historyCharBudget) break;
-            charCount += entry.length;
-            historyItems.unshift(entry);
-          }
-
-          if (historyItems.length > 0) {
-            const trimmedCount = historyMessages.length - historyItems.length;
-            const historyNote =
-              trimmedCount > 0 ? `[${trimmedCount} older messages omitted]\n` : '';
-            const preamble = `<conversation_history>\n${historyNote}${historyItems.join('\n')}\n</conversation_history>`;
-            contextualPrompt = `${preamble}\n\n${prompt}`;
+          if (historyBuild.preamble) {
+            historyPreamble = historyBuild.preamble;
+            contextualPrompt = `${historyPreamble}\n\n${prompt}`;
             log(
-              '[ClaudeAgentRunner] Cold start: injecting',
-              historyItems.length,
-              'of',
-              historyMessages.length,
-              'history messages (budget:',
-              historyCharBudget,
-              'chars, used:',
-              charCount,
-              ', charsPerToken:',
-              charsPerToken.toFixed(2),
-              ')'
+              '[ClaudeAgentRunner] Cold start: injecting stable history preamble',
+              safeStringify({
+                injectedMessages: historyMessagesInjected,
+                availableMessages: historyMessagesAvailable,
+                omittedMessages: historyMessagesOmitted,
+                excludedCurrentTurnUser,
+                historyCharBudget,
+                contextWindow,
+              })
             );
           }
         }
@@ -1909,6 +2138,45 @@ Tool routing:
       log(
         `[ClaudeAgentRunner] Custom MCP tools (${mcpCustomTools.length}): ${mcpCustomTools.map((t) => t.name).join(', ')}`
       );
+
+      const toolFingerprintInput = {
+        builtIn: wrappedTools.map((tool) => describeToolForFingerprint(tool)),
+        mcp: mcpCustomTools.map((tool) => describeToolForFingerprint(tool)),
+      };
+      const cacheDiagnostics: CacheDiagnosticsPayload = {
+        version: 1,
+        provider,
+        modelId: piModel.id,
+        sessionReuse: Boolean(cachedSession),
+        coldStart: !cachedSession,
+        historySerializationVersion: 'stable-v1',
+        runtimeSignatureFingerprint: fingerprintText(sessionRuntimeSignature),
+        runtimeSignatureChangeReasons,
+        historyMessagesAvailable,
+        historyMessagesInjected,
+        historyMessagesOmitted,
+        excludedCurrentTurnUser,
+        historyCharBudget,
+        ...(historyPreamble
+          ? { historyPreambleFingerprint: fingerprintText(historyPreamble) }
+          : {}),
+        systemPromptFingerprint: fingerprintText(coworkAppendPrompt),
+        toolsFingerprint: fingerprintValue(toolFingerprintInput),
+        fullRequestPrefixFingerprint: fingerprintValue({
+          systemPrompt: coworkAppendPrompt,
+          historyPreamble,
+          tools: toolFingerprintInput,
+        }),
+      };
+      const cacheDiagnosticsStepId = uuidv4();
+      this.sendTraceStep(session.id, {
+        id: cacheDiagnosticsStepId,
+        type: 'text',
+        status: 'completed',
+        title: 'Cache diagnostics',
+        content: JSON.stringify(cacheDiagnostics, null, 2),
+        timestamp: Date.now(),
+      });
 
       let piSession: PiAgentSession;
       if (cachedSession) {
@@ -2340,21 +2608,33 @@ Tool routing:
                   type: 'stream.partial',
                   payload: { sessionId: session.id, delta: '' },
                 });
+                const msgWithUsage = msg as { usage?: unknown };
+                const tokenUsage = normalizeTokenUsage(msgWithUsage.usage);
+                if (msgWithUsage.usage) {
+                  log(
+                    '[ClaudeAgentRunner] normalized usage:',
+                    safeStringify(
+                      {
+                        raw: msgWithUsage.usage,
+                        normalized: tokenUsage,
+                      },
+                      2
+                    )
+                  );
+                }
+                if (tokenUsage) {
+                  cacheDiagnostics.cacheUsage = tokenUsage;
+                  this.sendTraceUpdate(session.id, cacheDiagnosticsStepId, {
+                    content: JSON.stringify(cacheDiagnostics, null, 2),
+                    title:
+                      tokenUsage.cacheHit === true
+                        ? 'Cache diagnostics (hit)'
+                        : tokenUsage.cacheHit === false
+                          ? 'Cache diagnostics (miss)'
+                          : 'Cache diagnostics',
+                  });
+                }
                 if (contentBlocks.length > 0) {
-                  const msgWithUsage = msg as { usage?: unknown };
-                  const tokenUsage = normalizeTokenUsage(msgWithUsage.usage);
-                  if (msgWithUsage.usage) {
-                    log(
-                      '[ClaudeAgentRunner] normalized usage:',
-                      safeStringify(
-                        {
-                          raw: msgWithUsage.usage,
-                          normalized: tokenUsage,
-                        },
-                        2
-                      )
-                    );
-                  }
                   const assistantMsg: Message = {
                     id: uuidv4(),
                     sessionId: session.id,

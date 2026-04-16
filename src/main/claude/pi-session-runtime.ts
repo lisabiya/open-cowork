@@ -10,6 +10,16 @@ export interface PiSessionRuntimeSignatureInput {
   apiKey?: string;
 }
 
+export interface PiSessionRuntimeSignatureParts {
+  configProvider: string;
+  customProtocol: string;
+  modelProvider: string;
+  modelApi: string;
+  modelBaseUrl: string;
+  effectiveCwd: string;
+  apiKeyFingerprint: string;
+}
+
 function normalizeText(value: string | undefined): string {
   return value?.trim() || '';
 }
@@ -34,4 +44,44 @@ export function buildPiSessionRuntimeSignature(
     effectiveCwd: normalizeText(input.effectiveCwd),
     apiKeyFingerprint: fingerprintSecret(input.apiKey),
   });
+}
+
+function parsePiSessionRuntimeSignature(
+  signature: string,
+): PiSessionRuntimeSignatureParts | null {
+  try {
+    const parsed = JSON.parse(signature) as Partial<PiSessionRuntimeSignatureParts>;
+    return {
+      configProvider: normalizeText(parsed.configProvider),
+      customProtocol: normalizeText(parsed.customProtocol),
+      modelProvider: normalizeText(parsed.modelProvider),
+      modelApi: normalizeText(parsed.modelApi),
+      modelBaseUrl: normalizeText(parsed.modelBaseUrl).replace(/\/+$/, ''),
+      effectiveCwd: normalizeText(parsed.effectiveCwd),
+      apiKeyFingerprint: normalizeText(parsed.apiKeyFingerprint),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function diffPiSessionRuntimeSignatures(
+  previous: string,
+  next: string,
+): string[] {
+  const previousParts = parsePiSessionRuntimeSignature(previous);
+  const nextParts = parsePiSessionRuntimeSignature(next);
+
+  if (!previousParts || !nextParts) {
+    return ['signature_parse_failed'];
+  }
+
+  const changedKeys: string[] = [];
+  const keys = Object.keys(previousParts) as Array<keyof PiSessionRuntimeSignatureParts>;
+  for (const key of keys) {
+    if (previousParts[key] !== nextParts[key]) {
+      changedKeys.push(key);
+    }
+  }
+  return changedKeys;
 }

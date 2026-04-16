@@ -276,16 +276,11 @@ open-cowork/
 
 ## 🗺️ Roadmap
 
-- [x] **Core**: Stable Windows & macOS Installers
-- [x] **Security**: Full Filesystem Sandboxing
-- [x] **Skills**: PPTX, DOCX, PDF, XLSX Support + Custom Skill Management
-- [x] **VM Sandbox**: WSL2 (Windows) and Lima (macOS) isolation support
-- [x] **MCP Connectors**: Custom connector support for external service integration
-- [x] **Rich Input**: File upload and image input in chat
-- [x] **Multi-Model**: OpenAI-compatible API support (iterating)
-- [x] **UI/UX**: Enhanced interface with English/Chinese localization
-- [ ] **Memory Optimization**: Improved context management for longer sessions and cross-session memory.
-- [ ] **New Features**: Stay tuned!
+See our full **[ROADMAP.md](ROADMAP.md)** for detailed plans.
+
+**Completed:** Core installers · Filesystem sandboxing · VM isolation (WSL2/Lima) · Skills (PPTX/DOCX/PDF/XLSX) · MCP connectors · Multi-model support · Rich input · i18n
+
+**Coming next:** Memory optimization · Linux support · Plugin system · Computer use · Stable release
 
 ---
 

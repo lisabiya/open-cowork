@@ -63,6 +63,7 @@ import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
 import { ThinkTagStreamParser } from './think-tag-parser';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { executeWindowsBash } from '../tools/windows-bash-executor';
+import { resolvePreferredWindowsShell, getWindowsRegistryPathEntries } from '../runtime/runtime-resolver';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -207,20 +208,12 @@ async function enrichProcessPathForBuild(): Promise<void> {
     }
   } else if (platform === 'win32') {
     try {
-      const output = (
-        execFileSync(
-          'powershell.exe',
-          [
-            '-NoProfile',
-            '-Command',
-            "[Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')",
-          ],
-          { encoding: 'utf-8', timeout: 5000 }
-        ) as string
-      ).trim();
-      if (output) {
-        shellPaths = output.split(';').filter((p: string) => p.trim());
-        log(`[ClaudeAgentRunner] Restored ${shellPaths.length} paths from Windows registry`);
+      shellPaths = getWindowsRegistryPathEntries();
+      if (shellPaths.length > 0) {
+        const shellRuntime = resolvePreferredWindowsShell();
+        log(
+          `[ClaudeAgentRunner] Restored ${shellPaths.length} paths from Windows registry via ${shellRuntime?.flavor || 'powershell'}`
+        );
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

@@ -26,6 +26,69 @@ export function toUserFacingErrorText(errorText: string): string {
     return '模型返回了一个空的成功结果，当前模型或网关兼容性可能有问题，请重试或切换协议后再试。';
   }
   if (
+    lower.includes('no executable bash environment available on windows') ||
+    lower.includes('no bash shell found') ||
+    (lower.includes('bash') && lower.includes('not found'))
+  ) {
+    return [
+      '当前环境缺少可用的 Bash 执行能力。',
+      '建议修复：',
+      '1. 在“设置 → 日志/诊断 → 环境体检”里查看并复制修复命令',
+      '2. 开启 WSL2（适合 Unix-first 项目）',
+      '3. 或安装 Git for Windows 作为兼容 fallback',
+      '',
+      `原始错误: ${errorText}`,
+    ].join('\n');
+  }
+  if (
+    lower.includes('windowsapps\\python.exe') ||
+    lower.includes('windowsapps/python.exe') ||
+    lower.includes('python not found') ||
+    lower.includes("'python' is not recognized") ||
+    lower.includes('no python runtime detected') ||
+    lower.includes('unable to create process using')
+  ) {
+    return [
+      '当前环境的 Python 运行时不可用，或命中了 WindowsApps/py launcher 的不稳定路径。',
+      '建议修复：',
+      '1. 在“设置 → 日志/诊断 → 环境体检”里复制 Python 修复命令',
+      '2. 优先使用项目自己的 .venv / 已知解释器路径',
+      '3. 避免依赖 WindowsApps 的 python alias',
+      '',
+      `原始错误: ${errorText}`,
+    ].join('\n');
+  }
+  if (
+    lower.includes('wsl2 is not available') ||
+    lower.includes('wsl not available') ||
+    lower.includes('failed to initialize wsl sandbox') ||
+    lower.includes('cannot execute commands in wsl')
+  ) {
+    return [
+      '当前机器不可用 WSL 执行环境。',
+      '建议修复：',
+      '1. 在管理员 PowerShell 中执行: wsl --install',
+      '2. 重启系统后重新打开 Open Cowork',
+      '3. 如果只是普通 Windows 项目，可先继续使用 Native Windows 模式',
+      '',
+      `原始错误: ${errorText}`,
+    ].join('\n');
+  }
+  if (
+    lower.includes('git not found') ||
+    lower.includes("'git' is not recognized") ||
+    lower.includes('failed to install plugin: claude command not found')
+  ) {
+    return [
+      '当前环境缺少必要的命令行工具（Git 或相关 CLI）。',
+      '建议修复：',
+      '1. 在“设置 → 日志/诊断 → 环境体检”查看缺失项',
+      '2. 安装 Git for Windows，并重启应用',
+      '',
+      `原始错误: ${errorText}`,
+    ].join('\n');
+  }
+  if (
     /\b400\b/.test(errorText) ||
     lower.includes('bad request') ||
     lower.includes('invalid request')

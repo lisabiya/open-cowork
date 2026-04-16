@@ -16,6 +16,7 @@ import { log, logError } from '../utils/logger';
 import { isPathWithinRoot } from '../tools/path-containment';
 import { getDefaultShell } from '../utils/shell-resolver';
 import { withRetry } from '../utils/retry';
+import { getWindowsRegistryPathEntries } from '../runtime/runtime-resolver';
 import { pluginRegistryStore } from './plugin-registry-store';
 import { PluginCatalogService } from './plugin-catalog-service';
 
@@ -314,14 +315,8 @@ export class PluginRuntimeService {
       }
     } else if (process.platform === 'win32') {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { execSync } = require('child_process');
-        const winPath = execSync(
-          "powershell.exe -NoProfile -Command \"[Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')\"",
-          { encoding: 'utf-8', timeout: 5000 }
-        ).trim();
-        if (winPath) {
-          const winPaths = winPath.split(';').filter((p: string) => p.trim());
+        const winPaths = getWindowsRegistryPathEntries();
+        if (winPaths.length > 0) {
           const currentPaths = (env.PATH || '').split(';').filter((p: string) => p.trim());
           const allPaths = [...winPaths];
           for (const p of currentPaths) {

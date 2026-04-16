@@ -1,6 +1,7 @@
 import { homedir } from 'os';
 import path from 'path';
 import type { Message, Session, TraceStep } from '../../renderer/types';
+import type { EnvironmentDoctorReport } from '../runtime/environment-doctor';
 
 const MAX_DIAGNOSTIC_SESSIONS = 8;
 const MAX_DIAGNOSTIC_ERROR_STEPS = 20;
@@ -84,6 +85,7 @@ export interface DiagnosticsSummary {
     mode: string;
     initialized: boolean;
   };
+  environmentDoctor?: EnvironmentDoctorReport;
   sessions: {
     total: number;
     included: number;
@@ -112,6 +114,7 @@ export interface BuildDiagnosticsSummaryInput {
   runtime: DiagnosticsSummary['runtime'];
   config: DiagnosticsSummary['config'];
   sandbox: DiagnosticsSummary['sandbox'];
+  environmentDoctor?: EnvironmentDoctorReport;
   sessions: Session[];
   logFiles: DiagnosticLogFile[];
   deps: DiagnosticsSummaryDependencies;
@@ -314,6 +317,7 @@ export function buildDiagnosticsSummary(input: BuildDiagnosticsSummaryInput): Di
       defaultWorkdir: redactFileSystemPath(input.config.defaultWorkdir),
     },
     sandbox: input.sandbox,
+    environmentDoctor: input.environmentDoctor,
     sessions: {
       total: sessions.length,
       included: sessionSummaries.length,

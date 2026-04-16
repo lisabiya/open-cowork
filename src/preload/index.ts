@@ -32,6 +32,7 @@ import type {
   PairingRequest,
   RemoteSessionMapping,
 } from '../shared/ipc-types';
+import type { EnvironmentDoctorReport } from '../main/runtime/environment-doctor';
 
 // Track registered callbacks to prevent duplicate listeners
 let registeredCallback: ((event: ServerEvent) => void) | null = null;
@@ -336,6 +337,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('logs.write', level, ...args),
   },
 
+  diagnostics: {
+    getEnvironmentDoctor: (): Promise<{
+      success: boolean;
+      report?: EnvironmentDoctorReport;
+      error?: string;
+    }> => ipcRenderer.invoke('diagnostics.environmentDoctor'),
+  },
+
   // Remote control methods
   remote: {
     getConfig: (): Promise<RemoteConfig> => ipcRenderer.invoke('remote.getConfig'),
@@ -560,6 +569,13 @@ declare global {
           level: 'info' | 'warn' | 'error',
           ...args: unknown[]
         ) => Promise<{ success: boolean; error?: string }>;
+      };
+      diagnostics: {
+        getEnvironmentDoctor: () => Promise<{
+          success: boolean;
+          report?: EnvironmentDoctorReport;
+          error?: string;
+        }>;
       };
       remote: {
         getConfig: () => Promise<RemoteConfig>;

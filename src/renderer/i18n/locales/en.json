@@ -532,6 +532,17 @@
     "clearSuccess": "Cleared {{count}} log file(s)",
     "exportFailed": "Failed to export logs",
     "clearFailed": "Failed to clear logs",
+    "environmentDoctorTitle": "Environment Doctor",
+    "environmentDoctorDescription": "Current runtime detection and execution capability snapshot for this machine.",
+    "capabilitySource": "Source: {{source}}",
+    "copyFixCommand": "Copy fix command",
+    "fixCommandCopied": "Fix command copied",
+    "preflightIssuesTitle": "Preflight Issues",
+    "status": {
+      "available": "Available",
+      "warning": "Warning",
+      "missing": "Missing"
+    },
     "helpText1": "The exported diagnostics bundle includes app logs, a redacted runtime snapshot, and metadata-only session/error summaries without message bodies by default.",
     "helpText2": "Sharing that bundle usually lets us narrow issues down much faster, whether they come from the UI, tool execution, or local environment."
   },

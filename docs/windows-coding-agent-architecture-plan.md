@@ -581,18 +581,106 @@ PATH = [bundled_tools, workspace_bin, resolved_runtime_bin, system_paths]
 
 ---
 
-## 13. 最终统一结论
+## 14. 当前落地进度（2026-04-16）
 
-Open Cowork 在 Windows 上的长期路线应明确为：
+### 14.1 已完成
 
-- 默认执行面：**Native Windows + PowerShell 7 + Structured Tools**
-- Linux 兼容面：**WSL**
-- 兼容兜底：**Git Bash（短期保留）**
-- 安全隔离面：**Sandbox**
+#### Windows 执行面止血
+- [x] Windows 下接管 `bash` tool，优先走 WSL，fallback 到 Git Bash
+- [x] 修复 Windows 下 `sudo` 误走 `cmd.exe /c sudo ...` 的问题
+- [x] 保留对 `~/.pi/agent/settings.json` 中 `shellPath` 的兼容读取
+- [x] 自带 `rg.exe`，并已打入 Windows 安装包
+- [x] 在 agent 运行时注入 bundled tools PATH
 
-同时坚持以下原则：
+#### Runtime Resolver 基础层
+- [x] 新增 `src/main/runtime/runtime-resolver.ts`
+- [x] 支持 `resolvePreferredWindowsShell()`
+- [x] 支持 `resolvePythonFromPath()`
+- [x] 支持 `resolveNodeFromPath()`
+- [x] 支持 `collectRuntimeDiagnostics()`
+- [x] 支持识别 WindowsApps Python alias warning
+- [x] Windows 默认 shell 选择已切到 `pwsh -> powershell -> cmd`
 
-- 搜索 / 文件 / patch 应彻底脱离 shell
-- Agent Runtime 与 Workspace Runtime 必须彻底拆分
-- 必须提供 Environment Doctor 与一键修复能力
-- shell 从前台能力退化为后台兼容层
+#### Windows PowerShell 执行器
+- [x] 新增 `src/main/tools/windows-powershell-executor.ts`
+- [x] `tool-executor` / `native-executor` 已接入 PowerShell resolver
+
+#### Environment Doctor 最小版
+- [x] 新增 `src/main/runtime/environment-doctor.ts`
+- [x] 已提供 IPC：`diagnostics.environmentDoctor`
+- [x] 已接入日志导出 `diagnostics-summary.json`
+- [x] preload 已暴露 `window.electronAPI.diagnostics.getEnvironmentDoctor()`
+- [x] 设置页已可查看 Environment Doctor 报告
+- [x] 已展示 capability / source / warning / preflight issues
+- [x] 已为缺失项提供 `fixCommand` 并支持前端一键复制
+
+#### 用户可见错误提示产品化
+- [x] `agent-runner-message-end.ts` 已识别并转义常见环境错误：
+  - bash 不可用
+  - Python 不可用 / WindowsApps alias / py launcher 异常
+  - WSL 不可用
+  - Git / CLI 缺失
+- [x] 错误提示已引导用户使用“设置 → 日志/诊断 → 环境体检”完成修复
+
+#### 多入口收敛到 Runtime Resolver
+- [x] `agent-runner` 的 Windows PATH 恢复已改为复用共享 resolver helper
+- [x] `mcp-manager` 不再硬编码 `powershell.exe`，改为复用 resolver
+- [x] `plugin-runtime-service` 不再硬编码 `powershell.exe`，改为复用 resolver
+- [x] 新增 `getWindowsRegistryPathEntries()` 共享 helper
+
+### 14.2 当前阶段判断
+
+当前 Phase 1 已经从“止血”进入“产品化可用”阶段：
+
+- Windows 上不再必须依赖用户自己装好 Git Bash 才能基础可用
+- 搜索能力已有 bundled `rg`
+- shell/runtime 诊断已具备最小产品形态
+- 用户能看到缺失项、修复建议和可复制命令
+- 常见 Windows 环境报错已开始转成用户可理解提示
+
+### 14.3 仍待开发 / 下一步重点
+
+#### P0：继续统一执行入口
+- [ ] 审查并清理剩余硬编码的 `powershell.exe` / `pwsh` / `python` / `node`
+- [ ] 重点检查：
+  - `src/main/mcp/gui-operate-server.ts`
+  - `src/main/mcp/mcp-config-store.ts`
+  - 其他 MCP / skill / plugin 启动入口
+- [ ] 将更多运行入口收敛到 Runtime Resolver / Process Runner
+
+#### P0：继续减少 shell-first 依赖
+- [ ] 为搜索能力补 wrapper，减少 agent 直接拼 `rg` / `grep`
+- [ ] 逐步把文件搜索 / 文本搜索迁到更结构化的工具接口
+
+#### P1：把 Environment Doctor 从“建议修复”推进到“可操作修复”
+- [ ] 为 shell / Python / Git / WSL 缺失项提供更明确的 CTA
+- [ ] 评估增加：
+  - 打开下载页
+  - 打开设置页
+  - 切换兼容模式
+  - WSL 引导
+- [ ] 后续再考虑真正的一键修复 / 自动安装
+
+#### P1：Runtime Resolver 继续增强
+- [ ] 加入 workspace runtime 解析（而不只看系统 PATH）
+- [ ] 引入 `.venv` / Poetry / Conda / Volta / Corepack / fnm 等探测
+- [ ] 区分 Agent Runtime 与 Workspace Runtime
+
+#### P2：结构化能力建设
+- [ ] 结构化 git service
+- [ ] 结构化 search service
+- [ ] `run_process` / `run_pwsh` / `run_bash` 统一抽象
+- [ ] Execution Plane Manager / Workspace Environment Service 初版
+
+### 14.4 最近关键提交
+
+- `95da95a` — `feat(windows): bundle rg and add runtime resolver groundwork`
+
+本轮提交应作为其后的连续推进，重点覆盖：
+
+- Environment Doctor 前后端接线
+- fix command 可见与复制
+- 用户错误提示产品化
+- Windows PATH 恢复逻辑共享化
+- MCP / plugin runtime 接入 resolver
+

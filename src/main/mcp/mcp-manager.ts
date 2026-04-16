@@ -20,6 +20,7 @@ import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { log, logError, logWarn, logCtx, logCtxError, logTiming } from '../utils/logger';
 import { getDefaultShell } from '../utils/shell-resolver';
+import { getWindowsRegistryPathEntries, resolvePreferredWindowsShell } from '../runtime/runtime-resolver';
 
 /**
  * MCP Server Configuration
@@ -358,46 +359,24 @@ export class MCPManager {
         logWarn(`[MCPManager] Using limited process.env, MCP servers may fail`);
       }
     } else if (platform === 'win32') {
-      // Windows: try PowerShell to get user PATH
-      // Use full path to avoid relying on PATH in Electron packaged environment
-      const psExe = path.join(
-        process.env.SystemRoot || 'C:\\Windows',
-        'System32',
-        'WindowsPowerShell',
-        'v1.0',
-        'powershell.exe'
-      );
       try {
-        const { stdout } = await execFileAsync(
-          psExe,
-          [
-            '-NoProfile',
-            '-Command',
-            "[Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')",
-          ],
-          { timeout: 5000 }
-        );
-        if (stdout.trim()) {
-          const pathDelimiter = ';';
-          const winPaths = stdout
-            .trim()
-            .split(pathDelimiter)
-            .filter((p) => p.trim());
-          const currentPaths = (env.PATH || '').split(pathDelimiter).filter((p) => p.trim());
+        const winPaths = getWindowsRegistryPathEntries();
+        if (winPaths.length > 0) {
+          const currentPaths = (env.PATH || '').split(';').filter((p) => p.trim());
           const allPaths = [...winPaths];
           for (const p of currentPaths) {
             if (!allPaths.some((ep) => ep.toLowerCase() === p.toLowerCase())) {
               allPaths.push(p);
             }
           }
-          env.PATH = allPaths.join(pathDelimiter);
+          env.PATH = allPaths.join(';');
           log(
-            `[MCPManager] Enhanced Windows PATH: ${winPaths.length} user/machine paths + ${allPaths.length - winPaths.length} unique process paths = ${allPaths.length} total`
+            `[MCPManager] Enhanced Windows PATH via ${resolvePreferredWindowsShell()?.flavor || 'powershell'}: ${winPaths.length} user/machine paths + ${allPaths.length - winPaths.length} unique process paths = ${allPaths.length} total`
           );
         }
       } catch (error: unknown) {
         logWarn(
-          `[MCPManager] Could not get Windows PATH from PowerShell: ${error instanceof Error ? error.message : String(error)}`
+          `[MCPManager] Could not get Windows PATH from shell resolver: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }

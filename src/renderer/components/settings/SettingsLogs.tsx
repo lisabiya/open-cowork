@@ -8,11 +8,18 @@ import {
   Globe,
   Trash2,
   Copy,
+  Stethoscope,
 } from 'lucide-react';
 import { formatAppDateTime } from '../../utils/i18n-format';
 import { SettingsContentSection } from './shared';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
+
+type EnvironmentDoctorReport = Awaited<
+  ReturnType<typeof window.electronAPI.diagnostics.getEnvironmentDoctor>
+> extends { report?: infer R }
+  ? R
+  : never;
 
 export function SettingsLogs({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
@@ -24,6 +31,7 @@ export function SettingsLogs({ isActive }: { isActive: boolean }) {
   const [success, setSuccess] = useState('');
   const [logsDirectory, setLogsDirectory] = useState('');
   const [devLogsEnabled, setDevLogsEnabled] = useState(true);
+  const [environmentDoctor, setEnvironmentDoctor] = useState<EnvironmentDoctorReport | null>(null);
 
   const loadLogs = useCallback(async () => {
     try {
@@ -51,17 +59,29 @@ export function SettingsLogs({ isActive }: { isActive: boolean }) {
     }
   }, []);
 
+  const loadEnvironmentDoctor = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.diagnostics.getEnvironmentDoctor();
+      if (result.success && result.report) {
+        setEnvironmentDoctor(result.report);
+      }
+    } catch (err) {
+      console.error('Failed to load environment doctor:', err);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isElectron || !isActive) {
       return;
     }
     void loadLogs();
     void loadDevLogsStatus();
+    void loadEnvironmentDoctor();
     const interval = setInterval(() => {
       void loadLogs();
     }, 3000);
     return () => clearInterval(interval);
-  }, [isActive, loadDevLogsStatus, loadLogs]);
+  }, [isActive, loadDevLogsStatus, loadEnvironmentDoctor, loadLogs]);
 
   async function handleToggleDevLogs() {
     setIsLoading(true);
@@ -258,6 +278,89 @@ export function SettingsLogs({ isActive }: { isActive: boolean }) {
                 <Copy className="w-3 h-3" />
               </button>
             </div>
+          </div>
+        </SettingsContentSection>
+      )}
+
+      {environmentDoctor && (
+        <SettingsContentSection
+          title={t('logs.environmentDoctorTitle')}
+          description={t('logs.environmentDoctorDescription')}
+        >
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {environmentDoctor.capabilities.map((capability) => (
+                <div
+                  key={capability.key}
+                  className="p-3 rounded-lg bg-background border border-border-subtle"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary flex items-center gap-2">
+                        <Stethoscope className="w-4 h-4 text-text-muted" />
+                        <span>{capability.label}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-text-muted break-all">{capability.detail}</div>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-medium ${
+                        capability.status === 'available'
+                          ? 'bg-success/10 text-success'
+                          : capability.status === 'warning'
+                            ? 'bg-warning/10 text-warning'
+                            : 'bg-error/10 text-error'
+                      }`}
+                    >
+                      {t(`logs.status.${capability.status}`)}
+                    </span>
+                  </div>
+                  {(capability.source || capability.actionHint || capability.fixCommand) && (
+                    <div className="mt-2 space-y-1 text-xs text-text-muted">
+                      {capability.source && (
+                        <div>{t('logs.capabilitySource', { source: capability.source })}</div>
+                      )}
+                      {capability.actionHint && <div>{capability.actionHint}</div>}
+                      {capability.fixCommand && (
+                        <div className="mt-2 rounded border border-border-subtle bg-surface-subtle p-2">
+                          <div className="font-mono break-all text-text-secondary">
+                            {capability.fixCommand}
+                          </div>
+                          <div className="mt-2 flex justify-end">
+                            <button
+                              className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10 transition-colors"
+                              onClick={() => {
+                                navigator.clipboard.writeText(capability.fixCommand!);
+                                setSuccess(t('logs.fixCommandCopied'));
+                                setTimeout(() => setSuccess(''), 2500);
+                              }}
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span>{t('logs.copyFixCommand')}</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {environmentDoctor.preflightIssues.length > 0 && (
+              <div className="rounded-lg border border-border-subtle bg-background p-3">
+                <div className="text-sm font-medium text-text-primary mb-2">
+                  {t('logs.preflightIssuesTitle')}
+                </div>
+                <div className="space-y-2">
+                  {environmentDoctor.preflightIssues.map((issue, index) => (
+                    <div key={`${issue.resource}-${index}`} className="text-xs text-text-muted">
+                      <span className="font-medium text-text-primary">{issue.resource}</span>
+                      {' · '}
+                      <span>{issue.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </SettingsContentSection>
       )}

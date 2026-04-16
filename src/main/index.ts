@@ -82,6 +82,7 @@ import {
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
+import { collectEnvironmentDoctorReport } from './runtime/environment-doctor';
 
 // Current working directory (persisted between sessions)
 let currentWorkingDir: string | null = null;
@@ -2007,6 +2008,15 @@ ipcMain.handle('logs.getAll', () => {
   }
 });
 
+ipcMain.handle('diagnostics.environmentDoctor', () => {
+  try {
+    return { success: true, report: collectEnvironmentDoctorReport() };
+  } catch (error) {
+    logError('[Diagnostics] Error collecting environment doctor report:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
 ipcMain.handle('logs.export', async () => {
   try {
     const logFiles = getAllLogFiles();
@@ -2043,6 +2053,7 @@ ipcMain.handle('logs.export', async () => {
         mode: getSandboxAdapter().mode,
         initialized: getSandboxAdapter().initialized,
       },
+      environmentDoctor: collectEnvironmentDoctorReport(),
       sessions: sessionManager ? sessionManager.listSessions() : [],
       logFiles,
       deps: {

@@ -532,6 +532,17 @@
     "clearSuccess": "已清除 {{count}} 个日志文件",
     "exportFailed": "导出日志失败",
     "clearFailed": "清除日志失败",
+    "environmentDoctorTitle": "环境体检",
+    "environmentDoctorDescription": "当前机器的运行时检测结果与执行能力快照。",
+    "capabilitySource": "来源：{{source}}",
+    "copyFixCommand": "复制修复命令",
+    "fixCommandCopied": "修复命令已复制",
+    "preflightIssuesTitle": "预检问题",
+    "status": {
+      "available": "可用",
+      "warning": "警告",
+      "missing": "缺失"
+    },
     "helpText1": "导出的诊断包会包含应用日志、脱敏后的运行环境信息，以及最近会话/错误的元数据摘要，不会默认附带消息正文。",
     "helpText2": "把诊断包发给我们后，通常可以更快定位到是前端异常、工具调用失败，还是配置/环境问题。"
   },

@@ -71,6 +71,33 @@ describe('runtime-resolver', () => {
     expect(resolved?.warnings[0]).toContain('PowerShell 7 not found');
   });
 
+  it('does not attempt Windows registry PATH restore when only cmd fallback is available', async () => {
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      writable: true,
+      configurable: true,
+    });
+
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-runtime-'));
+    const systemRoot = path.join(tmpDir, 'Windows');
+    const cmdDir = path.join(systemRoot, 'System32');
+    fs.mkdirSync(cmdDir, { recursive: true });
+    fs.writeFileSync(path.join(cmdDir, 'cmd.exe'), '');
+
+    process.env.ProgramFiles = path.join(tmpDir, 'missing-program-files');
+    process.env.SystemRoot = systemRoot;
+    process.env.PATH = '';
+
+    const { getWindowsRegistryPathEntries, resolvePreferredWindowsShell } = await import(
+      '../main/runtime/runtime-resolver'
+    );
+    const shell = resolvePreferredWindowsShell();
+    const restored = getWindowsRegistryPathEntries();
+
+    expect(shell?.flavor).toBe('cmd');
+    expect(restored).toEqual([]);
+  });
+
   it('detects WindowsApps python alias as warning', async () => {
     Object.defineProperty(process, 'platform', {
       value: 'win32',

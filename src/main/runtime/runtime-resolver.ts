@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 export type RuntimeSource = 'bundled' | 'configured' | 'workspace' | 'system' | 'wsl' | 'unknown';
 export type RuntimeKind = 'shell' | 'node' | 'python' | 'git';
@@ -110,6 +111,36 @@ export function resolvePreferredWindowsShell(): ResolvedRuntime | null {
     flavor: 'cmd',
     warnings,
   };
+}
+
+export function getWindowsRegistryPathEntries(): string[] {
+  if (process.platform !== 'win32') {
+    return [];
+  }
+
+  const shellRuntime = resolvePreferredWindowsShell();
+  if (!shellRuntime || (shellRuntime.flavor !== 'pwsh' && shellRuntime.flavor !== 'powershell')) {
+    return [];
+  }
+
+  const output = (
+    execFileSync(
+      shellRuntime.path,
+      [
+        '-NoProfile',
+        '-Command',
+        "[Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')",
+      ],
+      { encoding: 'utf-8', timeout: 5000 }
+    ) as string
+  ).trim();
+
+  return output
+    ? output
+        .split(';')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [];
 }
 
 export function resolvePythonFromPath(): ResolvedRuntime | null {

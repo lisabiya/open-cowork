@@ -16,6 +16,15 @@ import { MessageCard } from './MessageCard';
 import type { Message, ContentBlock } from '../types';
 import { Send, Square, Plus, Loader2, Plug, X, Clock } from 'lucide-react';
 
+const CHAT_INPUT_MIN_ROWS = 2;
+const CHAT_INPUT_MAX_ROWS = 10;
+const CHAT_INPUT_LINE_HEIGHT_PX = 24;
+const CHAT_INPUT_VERTICAL_PADDING_PX = 16;
+const CHAT_INPUT_MIN_HEIGHT_PX =
+  CHAT_INPUT_MIN_ROWS * CHAT_INPUT_LINE_HEIGHT_PX + CHAT_INPUT_VERTICAL_PADDING_PX;
+const CHAT_INPUT_MAX_HEIGHT_PX =
+  CHAT_INPUT_MAX_ROWS * CHAT_INPUT_LINE_HEIGHT_PX + CHAT_INPUT_VERTICAL_PADDING_PX;
+
 type AttachedFile = {
   name: string;
   path: string;
@@ -63,10 +72,27 @@ export function ChatView() {
   const scrollRequestRef = useRef<number | null>(null);
   const isScrollingRef = useRef(false);
 
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = `${CHAT_INPUT_MIN_HEIGHT_PX}px`;
+    const nextHeight = Math.min(
+      Math.max(textarea.scrollHeight, CHAT_INPUT_MIN_HEIGHT_PX),
+      CHAT_INPUT_MAX_HEIGHT_PX
+    );
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > CHAT_INPUT_MAX_HEIGHT_PX ? 'auto' : 'hidden';
+  }, []);
+
   const hasActiveTurn = Boolean(activeTurn);
   const pendingCount = pendingTurns.length;
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
+
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [adjustTextareaHeight, prompt]);
 
   const displayedMessages = useMemo(() => {
     if (!activeSessionId) return messages;
@@ -605,6 +631,7 @@ export function ChatView() {
       if (textareaRef.current) {
         textareaRef.current.value = '';
       }
+      requestAnimationFrame(() => adjustTextareaHeight());
       pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
       setPastedImages([]);
       setAttachedFiles([]);
@@ -792,7 +819,10 @@ export function ChatView() {
               <textarea
                 ref={textareaRef}
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
+                onChange={(e) => {
+                  setPrompt(e.target.value);
+                  adjustTextareaHeight();
+                }}
                 onCompositionStart={() => {
                   isComposingRef.current = true;
                 }}
@@ -812,8 +842,13 @@ export function ChatView() {
                 }}
                 placeholder={t('chat.typeMessage')}
                 disabled={isSubmitting}
-                rows={1}
-                className="flex-1 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] py-2"
+                rows={CHAT_INPUT_MIN_ROWS}
+                style={{
+                  minHeight: `${CHAT_INPUT_MIN_HEIGHT_PX}px`,
+                  maxHeight: `${CHAT_INPUT_MAX_HEIGHT_PX}px`,
+                  lineHeight: `${CHAT_INPUT_LINE_HEIGHT_PX}px`,
+                }}
+                className="flex-1 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] py-2 overflow-y-hidden"
               />
 
               <div className="flex items-center gap-2">

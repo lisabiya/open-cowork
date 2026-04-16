@@ -6,7 +6,7 @@ directories:
   output: release
   buildResources: resources
 
-npmRebuild: true
+npmRebuild: false
 afterPack: ./scripts/after-pack.js
 afterAllArtifactBuild: ./scripts/compress-dmg.js
 
@@ -73,6 +73,8 @@ win:
       to: mcp
     - from: resources/node/win32-x64
       to: node
+    - from: resources/tools/win32-x64
+      to: tools
     - from: dist-wsl-agent
       to: wsl-agent
     - from: .claude/skills

@@ -51,6 +51,7 @@ function populateWin32Artifacts(root: string): void {
   makeDir(path.join(root, 'dist'));
   makeDir(path.join(root, '.claude/skills'));
   makeFile(path.join(root, 'resources/node/win32-x64/node.exe'));
+  makeFile(path.join(root, 'resources/tools/win32-x64/bin/rg.exe'));
   makeFile(path.join(root, 'dist-wsl-agent/index.js'));
 }
 
@@ -91,7 +92,8 @@ describe('pre-build-check: runChecks', () => {
 
     expect(result.failed).toBe(0);
     expect(result.hasFatal).toBe(false);
-    expect(result.passed).toBeGreaterThanOrEqual(7);
+    // 5 common + 3 win32 FATAL = 8 FATAL checks should pass
+    expect(result.passed).toBeGreaterThanOrEqual(8);
   });
 
   it('reports warnings for optional darwin resources that are missing', () => {

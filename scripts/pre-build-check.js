@@ -107,6 +107,12 @@ function buildCheckList(platform, arch) {
         relPath: 'dist-wsl-agent/index.js',
         type: 'file',
         severity: 'fatal',
+      },
+      {
+        label: 'Bundled ripgrep for Windows x64',
+        relPath: 'resources/tools/win32-x64/bin/rg.exe',
+        type: 'file',
+        severity: 'fatal',
       }
     );
   } else if (platform === 'linux') {

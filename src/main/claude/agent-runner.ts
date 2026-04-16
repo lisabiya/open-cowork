@@ -62,6 +62,7 @@ import {
 import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
 import { ThinkTagStreamParser } from './think-tag-parser';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
+import { executeWindowsBash } from '../tools/windows-bash-executor';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -131,19 +132,25 @@ function resolveBundledPythonBinDir(): string | null {
 }
 
 /**
- * Resolve bundled tools directory (cliclick etc., macOS only).
+ * Resolve bundled tools directory (ripgrep, cliclick, etc.).
  */
 function resolveBundledToolsBinDir(): string | null {
-  if (process.platform !== 'darwin') return null;
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
 
   const candidates: string[] = [];
   if (!app.isPackaged) {
     const projectRoot = path.join(__dirname, '..', '..');
-    candidates.push(path.join(projectRoot, 'resources', 'tools', `darwin-${arch}`, 'bin'));
+    if (process.platform === 'darwin') {
+      candidates.push(path.join(projectRoot, 'resources', 'tools', `darwin-${arch}`, 'bin'));
+    }
+    if (process.platform === 'win32') {
+      candidates.push(path.join(projectRoot, 'resources', 'tools', 'win32-x64', 'bin'));
+    }
     candidates.push(path.join(projectRoot, 'resources', 'tools', 'bin'));
   } else {
-    candidates.push(path.join(process.resourcesPath, 'tools', `darwin-${arch}`, 'bin'));
+    if (process.platform === 'darwin') {
+      candidates.push(path.join(process.resourcesPath, 'tools', `darwin-${arch}`, 'bin'));
+    }
     candidates.push(path.join(process.resourcesPath, 'tools', 'bin'));
   }
 
@@ -154,14 +161,14 @@ function resolveBundledToolsBinDir(): string | null {
 }
 
 /**
- * One-time enrichment of process.env.PATH for build (production) mode.
+ * One-time enrichment of process.env.PATH for runtime.
  *
- * In dev mode, Electron inherits the user's full shell PATH, so Skill commands
- * like `python3` and `node` just work. In build mode, `process.env.PATH` is
- * minimal (often just `/usr/bin:/bin`).
+ * In packaged mode, Electron often starts with a minimal PATH.
+ * In dev mode, Electron usually inherits the user's shell PATH, but we still
+ * prepend bundled tool directories so local runtime matches packaged behavior.
  *
  * This function:
- * 1. Restores the user's login-shell PATH (safe: uses execFileSync, not execSync)
+ * 1. Restores the user's login-shell PATH when needed
  * 2. Prepends bundled Node, Python, and tools bin dirs (highest priority)
  * 3. Deduplicates all entries
  * 4. Writes the result back to `process.env.PATH`
@@ -173,11 +180,6 @@ let pathEnriched = false;
 async function enrichProcessPathForBuild(): Promise<void> {
   if (pathEnriched) return;
   pathEnriched = true;
-
-  if (!app.isPackaged) {
-    log('[ClaudeAgentRunner] Dev mode — skipping PATH enrichment');
-    return;
-  }
 
   const platform = process.platform;
   const delimiter = platform === 'win32' ? ';' : ':';
@@ -258,7 +260,7 @@ async function enrichProcessPathForBuild(): Promise<void> {
 
   process.env.PATH = merged.join(delimiter);
   log(
-    `[ClaudeAgentRunner] Enriched process.env.PATH for build mode: ${bundledDirs.length} bundled + ${shellPaths.length} shell + ${currentPaths.length} process → ${merged.length} total`
+    `[ClaudeAgentRunner] Enriched process.env.PATH for runtime: ${bundledDirs.length} bundled + ${shellPaths.length} shell + ${currentPaths.length} process → ${merged.length} total${app.isPackaged ? ' (packaged)' : ' (dev)'}`
   );
 }
 
@@ -504,6 +506,15 @@ export class ClaudeAgentRunner {
       }
     }
 
+    const toolsBinDir = resolveBundledToolsBinDir();
+    if (toolsBinDir) {
+      const rgExe = process.platform === 'win32' ? 'rg.exe' : 'rg';
+      const rgPath = path.join(toolsBinDir, rgExe);
+      if (fs.existsSync(rgPath)) {
+        hints.push(`- rg: ${rgPath}`);
+      }
+    }
+
     if (hints.length === 0) return '';
 
     return `<bundled_executables>
@@ -730,6 +741,66 @@ ${hints.join('\n')}
     return /\bsudo\b/.test(command);
   }
 
+  private static formatBashToolText(result: {
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+  }): string {
+    return [
+      result.stdout ? `STDOUT:\n${result.stdout}` : '',
+      result.stderr ? `STDERR:\n${result.stderr}` : '',
+      `Exit code: ${result.exitCode}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  private replaceBashToolForWindows(
+    tools: ToolDefinition[],
+    sessionId: string,
+    effectiveCwd: string,
+    sanitizeOutputPaths?: (content: string) => string
+  ): ToolDefinition[] {
+    if (process.platform !== 'win32') {
+      return tools;
+    }
+
+    const sanitize = sanitizeOutputPaths ?? ((content: string) => content);
+
+    return tools.map((tool) => {
+      if (tool.name !== 'bash') {
+        return tool;
+      }
+
+      return {
+        ...tool,
+        execute: async (
+          _toolCallId: string,
+          params: { command: string; timeout?: number },
+          signal: AbortSignal | undefined
+        ) => {
+          const result = await executeWindowsBash({
+            sessionId,
+            command: params.command || '',
+            cwd: effectiveCwd,
+            timeout: params.timeout,
+            signal,
+          });
+
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: sanitize(ClaudeAgentRunner.formatBashToolText(result)),
+              },
+            ],
+            details: undefined as unknown,
+          };
+        },
+      } as ToolDefinition;
+    });
+  }
+
   /**
    * Wrap the bash tool in the coding tools array to intercept sudo commands.
    * When a sudo command is detected, prompts the user for a password,
@@ -738,11 +809,13 @@ ${hints.join('\n')}
   private wrapBashToolForSudo(
     tools: ToolDefinition[],
     sessionId: string,
-    effectiveCwd: string
+    effectiveCwd: string,
+    sanitizeOutputPaths?: (content: string) => string
   ): ToolDefinition[] {
     if (!this.requestSudoPassword) return tools;
 
     const requestSudoPassword = this.requestSudoPassword;
+    const sanitize = sanitizeOutputPaths ?? ((content: string) => content);
 
     return tools.map((tool) => {
       if (tool.name !== 'bash') return tool;
@@ -777,18 +850,33 @@ ${hints.join('\n')}
             // Add -S flag to sudo invocations that don't already have it
             const rewrittenCommand = command.replace(/\bsudo\b(?!\s+-S)/g, 'sudo -S');
 
-            // Pass password via stdin pipe so it never appears in process args
-            // or environment variables. Uses async spawn with stdio: 'pipe'.
             log(
               '[ClaudeAgentRunner] Executing sudo command with password injection (via stdin pipe)'
             );
             try {
-              const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
-              const shellArgs =
-                process.platform === 'win32' ? ['/c', rewrittenCommand] : ['-c', rewrittenCommand];
+              if (process.platform === 'win32') {
+                const result = await executeWindowsBash({
+                  sessionId,
+                  command: rewrittenCommand,
+                  cwd: effectiveCwd,
+                  timeout: params.timeout,
+                  signal,
+                  stdin: `${password}\n`,
+                });
+                return {
+                  content: [
+                    {
+                      type: 'text' as const,
+                      text: sanitize(ClaudeAgentRunner.formatBashToolText(result)),
+                    },
+                  ],
+                  details: undefined as unknown,
+                };
+              }
+
               const timeoutMs = (params.timeout ?? 120) * 1000;
               const output = await new Promise<string>((resolve, reject) => {
-                const child = spawn(shell, shellArgs, {
+                const child = spawn('/bin/sh', ['-c', rewrittenCommand], {
                   stdio: ['pipe', 'pipe', 'pipe'],
                   cwd: effectiveCwd,
                 });
@@ -1798,17 +1886,26 @@ Tool routing:
       await enrichProcessPathForBuild();
 
       const codingTools = createCodingTools(effectiveCwd);
+      const windowsBashTools = this.replaceBashToolForWindows(
+        codingTools as ToolDefinition[],
+        session.id,
+        effectiveCwd,
+        sanitizeOutputPaths
+      );
 
       // Inject a default 120s timeout for bash commands when the model omits one
-      const withTimeout = ClaudeAgentRunner.wrapBashToolWithDefaultTimeout(
-        codingTools as ToolDefinition[]
-      );
+      const withTimeout = ClaudeAgentRunner.wrapBashToolWithDefaultTimeout(windowsBashTools);
 
       // Wrap the bash tool to intercept sudo commands and request passwords
       // Note: wrapBashToolForSudo returns ToolDefinition[] (5-param execute) but
       // createAgentSession.tools expects Tool[] (4-param execute). The extra ctx
       // parameter is simply not passed by the session runner — safe to cast.
-      const wrappedTools = this.wrapBashToolForSudo(withTimeout, session.id, effectiveCwd);
+      const wrappedTools = this.wrapBashToolForSudo(
+        withTimeout,
+        session.id,
+        effectiveCwd,
+        sanitizeOutputPaths
+      );
 
       // Diagnostic: log tools being passed to SDK (helps debug Ollama tool use)
       logCtx(`[ClaudeAgentRunner] Session reuse check: cached=${!!cachedSession}`);

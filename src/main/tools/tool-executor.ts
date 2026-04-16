@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { glob } from 'glob';
@@ -7,6 +6,7 @@ import { PathResolver } from '../sandbox/path-resolver';
 import type { ToolResult, ExecutionContext, MountedPath } from '../../renderer/types';
 import { isUncPath } from '../../shared/local-file-path';
 import { isPathWithinRoot } from './path-containment';
+import { executeWindowsPowerShell } from './windows-powershell-executor';
 
 /**
  * ToolExecutor - Secure tool execution framework
@@ -397,24 +397,20 @@ export class ToolExecutor {
     // Sandbox validation
     this.validateCommandSandbox(sessionId, command, cwd);
 
+    if (process.platform === 'win32') {
+      const result = await executeWindowsPowerShell({
+        script: `chcp 65001 > $null\n${command}`,
+        cwd,
+      });
+      if (result.exitCode === 0) {
+        return result.stdout || 'Command completed successfully';
+      }
+      throw new Error(result.stderr || `Command exited with code ${result.exitCode}`);
+    }
+
     return new Promise((resolve, reject) => {
-      // On Windows prefer PowerShell with UTF-8 codepage to reduce quoting/encoding issues
-      const isWindows = process.platform === 'win32';
-      const shell = isWindows ? 'powershell.exe' : '/bin/bash';
-      const args = isWindows
-        ? (() => {
-            const scriptPath = path.join(os.tmpdir(), `oc-exec-${Date.now()}.ps1`);
-            fs.writeFileSync(scriptPath, `chcp 65001 > $null; ${command}`, 'utf-8');
-            return [
-              '-NoProfile',
-              '-NonInteractive',
-              '-ExecutionPolicy',
-              'Bypass',
-              '-File',
-              scriptPath,
-            ];
-          })()
-        : ['-c', command];
+      const shell = '/bin/bash';
+      const args = ['-c', command];
 
       const safeEnv = {
         PATH: process.env.PATH,
@@ -447,13 +443,6 @@ export class ToolExecutor {
       });
 
       proc.on('close', (code) => {
-        if (isWindows && args[args.length - 1]?.endsWith('.ps1')) {
-          try {
-            fs.unlinkSync(args[args.length - 1]);
-          } catch {
-            /* cleanup best-effort */
-          }
-        }
         if (code === 0) {
           resolve(stdout || 'Command completed successfully');
         } else {
@@ -915,23 +904,28 @@ export class ToolExecutor {
       };
     }
 
+    if (process.platform === 'win32') {
+      try {
+        const result = await executeWindowsPowerShell({
+          script: `chcp 65001 > $null\n${command}`,
+          cwd,
+          timeoutMs: 30000,
+        });
+        if (result.exitCode === 0) {
+          return { success: true, output: result.stdout || 'Command completed' };
+        }
+        return {
+          success: false,
+          error: result.stderr || `Command exited with code ${result.exitCode}`,
+        };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Command failed' };
+      }
+    }
+
     return new Promise((resolve) => {
-      const isWindows = process.platform === 'win32';
-      const shell = isWindows ? 'powershell.exe' : '/bin/bash';
-      const args = isWindows
-        ? (() => {
-            const scriptPath = path.join(os.tmpdir(), `oc-exec-${Date.now()}.ps1`);
-            fs.writeFileSync(scriptPath, `chcp 65001 > $null; ${command}`, 'utf-8');
-            return [
-              '-NoProfile',
-              '-NonInteractive',
-              '-ExecutionPolicy',
-              'Bypass',
-              '-File',
-              scriptPath,
-            ];
-          })()
-        : ['-c', command];
+      const shell = '/bin/bash';
+      const args = ['-c', command];
 
       const safeEnv2 = {
         PATH: process.env.PATH,
@@ -964,13 +958,6 @@ export class ToolExecutor {
       });
 
       proc.on('close', (code) => {
-        if (isWindows && args[args.length - 1]?.endsWith('.ps1')) {
-          try {
-            fs.unlinkSync(args[args.length - 1]);
-          } catch {
-            /* cleanup best-effort */
-          }
-        }
         if (code === 0) {
           resolve({ success: true, output: stdout || 'Command completed' });
         } else {

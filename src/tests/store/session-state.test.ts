@@ -29,6 +29,12 @@ describe('SessionState unified store', () => {
       expect(state.sessions).toHaveLength(1);
       expect(state.sessionStates['s1']).toBeDefined();
       expect(state.sessionStates['s1'].messages).toEqual([]);
+      expect(state.sessionStates['s1'].messagePagination).toEqual({
+        hasMore: false,
+        oldestTimestamp: null,
+        initialLoaded: false,
+        loadingOlder: false,
+      });
       expect(state.sessionStates['s1'].partialMessage).toBe('');
       expect(state.sessionStates['s1'].partialThinking).toBe('');
       expect(state.sessionStates['s1'].pendingTurns).toEqual([]);

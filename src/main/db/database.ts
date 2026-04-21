@@ -27,6 +27,8 @@ export interface DatabaseInstance {
     create: (message: MessageRow) => void;
     update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms'>>) => void;
     getBySessionId: (sessionId: string) => MessageRow[];
+    getLatestBySessionId: (sessionId: string, limit: number) => MessageRow[];
+    getBeforeTimestamp: (sessionId: string, beforeTimestamp: number, limit: number) => MessageRow[];
     delete: (id: string) => void;
     deleteBySessionId: (sessionId: string) => void;
   };
@@ -462,6 +464,17 @@ export function initDatabase(): DatabaseInstance {
     SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC
   `);
 
+  const getLatestMessagesBySessionStmt = rawDb.prepare(`
+    SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?
+  `);
+
+  const getMessagesBeforeTimestampStmt = rawDb.prepare(`
+    SELECT * FROM messages
+    WHERE session_id = ? AND timestamp < ?
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `);
+
   const updateMessageStmt = rawDb.prepare(`
     UPDATE messages SET execution_time_ms = ? WHERE id = ?
   `);
@@ -592,6 +605,18 @@ export function initDatabase(): DatabaseInstance {
 
       getBySessionId: (sessionId: string): MessageRow[] => {
         return getMessagesBySessionStmt.all(sessionId) as MessageRow[];
+      },
+
+      getLatestBySessionId: (sessionId: string, limit: number): MessageRow[] => {
+        return getLatestMessagesBySessionStmt.all(sessionId, limit) as MessageRow[];
+      },
+
+      getBeforeTimestamp: (sessionId: string, beforeTimestamp: number, limit: number): MessageRow[] => {
+        return getMessagesBeforeTimestampStmt.all(
+          sessionId,
+          beforeTimestamp,
+          limit
+        ) as MessageRow[];
       },
 
       delete: (id: string) => {

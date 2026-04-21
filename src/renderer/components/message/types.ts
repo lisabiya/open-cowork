@@ -16,6 +16,11 @@ export interface ContentBlockViewProps {
   allBlocks?: ContentBlock[];
   /** The full message, used to search across all session messages */
   message?: Message;
+  forceCollapsed?: boolean;
+}
+
+export interface ProcessCollapsibleProps {
+  forceCollapsed?: boolean;
 }
 
 export interface ToolBlockBaseProps {

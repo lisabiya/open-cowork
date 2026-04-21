@@ -9,6 +9,7 @@ import type {
   Message,
   TraceStep,
   ContentBlock,
+  SessionMessagesPage,
 } from '../types';
 import i18n from '../i18n/config';
 
@@ -663,17 +664,24 @@ export function useIPC() {
 
   // Get messages for a session (from persistent storage)
   const getSessionMessages = useCallback(
-    async (sessionId: string): Promise<Message[]> => {
+    async (
+      sessionId: string,
+      options?: { limit?: number; beforeTimestamp?: number }
+    ): Promise<SessionMessagesPage> => {
       if (!isElectron) {
         console.log('[useIPC] Browser mode - no persistent messages');
-        return [];
+        return { messages: [], hasMore: false, oldestTimestamp: null };
       }
       console.log('[useIPC] Getting messages for session:', sessionId);
-      const messages = await invoke<Message[]>({
+      const page = await invoke<SessionMessagesPage>({
         type: 'session.getMessages',
-        payload: { sessionId },
+        payload: {
+          sessionId,
+          limit: options?.limit,
+          beforeTimestamp: options?.beforeTimestamp,
+        },
       });
-      return messages || [];
+      return page || { messages: [], hasMore: false, oldestTimestamp: null };
     },
     [invoke]
   );

@@ -585,6 +585,10 @@
     "startConversation": "Start the conversation",
     "startFailed": "Failed to start session. Please try again.",
     "disclaimer": "Open Cowork is AI-powered and may make mistakes. Please double-check responses.",
+    "intermediateProcess": "Intermediate process",
+    "processRunning": "Processing",
+    "processCompleted": "Processed",
+    "intermediateItems": "items",
     "noModel": "No model",
     "connectorCount_one": "{{count}} connector",
     "connectorCount_other": "{{count}} connectors"
@@ -619,7 +623,9 @@
     "copyPath": "Copy path",
     "openInFileManager": "Open in file manager",
     "contextUsage": "Context Usage",
-    "contextUsageLabel": "{{used}} / {{total}}"
+    "contextUsageLabel": "{{used}} / {{total}}",
+    "contextUsageUnavailable": "Model context info is not available yet",
+    "contextUsageWaiting": "Will appear after a model response"
   },
   "messageCard": {
     "request": "Request",

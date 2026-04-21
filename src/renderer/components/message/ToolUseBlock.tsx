@@ -1,5 +1,5 @@
 // Tool use card — collapsible, merges matching tool_result from same/other messages
-import { useState, memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2, XCircle, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../../store';
 import {
@@ -8,6 +8,7 @@ import {
   shouldUseScreenshotSummary,
 } from '../../utils/tool-result-summary';
 import type { ToolUseContent, ToolResultContent, ContentBlock, Message } from '../../types';
+import type { ProcessCollapsibleProps } from './types';
 import { AskUserQuestionBlock } from './AskUserQuestionBlock';
 import { TodoWriteBlock } from './TodoWriteBlock';
 import { getToolIcon, getToolLabel } from './toolHelpers';
@@ -15,7 +16,7 @@ import { getToolIcon, getToolLabel } from './toolHelpers';
 // Only allow safe image MIME types for data: URI rendering
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
-interface ToolUseBlockProps {
+interface ToolUseBlockProps extends ProcessCollapsibleProps {
   block: ToolUseContent;
   allBlocks?: ContentBlock[];
   message?: Message;
@@ -25,6 +26,7 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   block,
   allBlocks,
   message,
+  forceCollapsed = false,
 }: ToolUseBlockProps) {
   const traceSteps = useAppStore((s) =>
     message?.sessionId ? (s.sessionStates[message.sessionId]?.traceSteps ?? []) : []
@@ -37,6 +39,12 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   );
   const [expanded, setExpanded] = useState(false);
 
+  useEffect(() => {
+    if (forceCollapsed && expanded) {
+      setExpanded(false);
+    }
+  }, [expanded, forceCollapsed]);
+
   // Special-case tool UIs
   if (block.name === 'AskUserQuestion') {
     return <AskUserQuestionBlock block={block} />;
@@ -47,14 +55,14 @@ export const ToolUseBlock = memo(function ToolUseBlock({
 
   // Find matching tool_result: first in same message, then across all session messages
   let toolResult = allBlocks?.find(
-    (b) => b.type === 'tool_result' && (b as ToolResultContent).toolUseId === block.id
+    (item) => item.type === 'tool_result' && (item as ToolResultContent).toolUseId === block.id
   ) as ToolResultContent | undefined;
 
   if (!toolResult && message?.sessionId) {
-    for (const msg of allMessages) {
-      if (!Array.isArray(msg.content)) continue;
-      const found = (msg.content as ContentBlock[]).find(
-        (b) => b.type === 'tool_result' && (b as ToolResultContent).toolUseId === block.id
+    for (const candidateMessage of allMessages) {
+      if (!Array.isArray(candidateMessage.content)) continue;
+      const found = (candidateMessage.content as ContentBlock[]).find(
+        (item) => item.type === 'tool_result' && (item as ToolResultContent).toolUseId === block.id
       );
       if (found) {
         toolResult = found as ToolResultContent;
@@ -68,7 +76,7 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   const hasActiveTurn = Boolean(activeTurn);
   const isRunning = !toolResult && hasActiveTurn;
   const isError = toolResult?.isError === true;
-  const isSuccess = toolResult && !isError;
+  const isSuccess = Boolean(toolResult) && !isError;
 
   const label = getToolLabel(block.name, block.input);
   const isMCPTool = block.name.startsWith('mcp__');
@@ -112,7 +120,7 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   // Duration from trace steps
   let duration: number | undefined;
   if (message?.sessionId) {
-    const resultStep = traceSteps.find((s) => s.id === block.id && s.type === 'tool_result');
+    const resultStep = traceSteps.find((step) => step.id === block.id && step.type === 'tool_result');
     duration = resultStep?.duration;
   }
 
@@ -126,9 +134,9 @@ export const ToolUseBlock = memo(function ToolUseBlock({
             : 'border-border-subtle bg-background/40'
       }`}
     >
-      {/* Header — always visible */}
       <button
-        onClick={() => setExpanded(!expanded)}
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
         className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-surface-hover/50 transition-colors"
       >
         {/* Status icon */}

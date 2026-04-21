@@ -31,9 +31,17 @@ export interface SessionExecutionClock {
   endAt: number | null;
 }
 
+export interface SessionMessagePagination {
+  hasMore: boolean;
+  oldestTimestamp: number | null;
+  initialLoaded: boolean;
+  loadingOlder: boolean;
+}
+
 // Unified per-session state that replaces 8 parallel xxxBySession Maps
 export interface SessionState {
   messages: Message[];
+  messagePagination: SessionMessagePagination;
   partialMessage: string;
   partialThinking: string;
   pendingTurns: string[];
@@ -45,6 +53,12 @@ export interface SessionState {
 
 const DEFAULT_SESSION_STATE: SessionState = {
   messages: [],
+  messagePagination: {
+    hasMore: false,
+    oldestTimestamp: null,
+    initialLoaded: false,
+    loadingOlder: false,
+  },
   partialMessage: '',
   partialThinking: '',
   pendingTurns: [],
@@ -132,6 +146,11 @@ interface AppState {
   finishExecutionClock: (sessionId: string, endAt?: number) => void;
   clearExecutionClock: (sessionId: string) => void;
   setMessages: (sessionId: string, messages: Message[]) => void;
+  prependMessages: (sessionId: string, messages: Message[]) => void;
+  setMessagePagination: (
+    sessionId: string,
+    updates: Partial<SessionMessagePagination>
+  ) => void;
   setPartialMessage: (sessionId: string, partial: string) => void;
   clearPartialMessage: (sessionId: string) => void;
   setPartialThinking: (sessionId: string, delta: string) => void;
@@ -377,6 +396,27 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({
       sessionStates: patchSession(state.sessionStates, sessionId, { messages }),
     })),
+
+  prependMessages: (sessionId, messages) =>
+    set((state) => {
+      const ss = getSession(state.sessionStates, sessionId);
+      if (messages.length === 0) return {};
+      return {
+        sessionStates: patchSession(state.sessionStates, sessionId, {
+          messages: [...messages, ...ss.messages],
+        }),
+      };
+    }),
+
+  setMessagePagination: (sessionId, updates) =>
+    set((state) => {
+      const ss = getSession(state.sessionStates, sessionId);
+      return {
+        sessionStates: patchSession(state.sessionStates, sessionId, {
+          messagePagination: { ...ss.messagePagination, ...updates },
+        }),
+      };
+    }),
 
   setPartialMessage: (sessionId, partial) =>
     set((state) => {

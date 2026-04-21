@@ -19,6 +19,8 @@ import type { Session } from '../types';
 
 import sidebarLogoSrc from '../assets/logo.png';
 
+const INITIAL_MESSAGES_PAGE_SIZE = 5;
+
 type SessionGroup = {
   key: string;
   label: string;
@@ -33,6 +35,7 @@ export function Sidebar() {
   const sessionStates = useAppStore((s) => s.sessionStates);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
   const setMessages = useAppStore((s) => s.setMessages);
+  const setMessagePagination = useAppStore((s) => s.setMessagePagination);
   const setTraceSteps = useAppStore((s) => s.setTraceSteps);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const isConfigured = useAppStore((s) => s.isConfigured);
@@ -155,13 +158,23 @@ export function Sidebar() {
 
       setActiveSession(sessionId);
 
-      const existingMessages = sessionStates[sessionId]?.messages;
-      if ((!existingMessages || existingMessages.length === 0) && isElectron) {
+      const existingState = sessionStates[sessionId];
+      const existingMessages = existingState?.messages;
+      if (
+        (!existingState?.messagePagination.initialLoaded || !existingMessages) &&
+        isElectron
+      ) {
         try {
-          const messages = await getSessionMessages(sessionId);
-          if (messages && messages.length > 0) {
-            setMessages(sessionId, messages);
-          }
+          const page = await getSessionMessages(sessionId, {
+            limit: INITIAL_MESSAGES_PAGE_SIZE,
+          });
+          setMessages(sessionId, page.messages);
+          setMessagePagination(sessionId, {
+            hasMore: page.hasMore,
+            oldestTimestamp: page.oldestTimestamp,
+            initialLoaded: true,
+            loadingOlder: false,
+          });
         } catch (error) {
           console.error('[Sidebar] Failed to load messages:', error);
         }
@@ -186,6 +199,7 @@ export function Sidebar() {
       setActiveSession,
       setMessages,
       setShowSettings,
+      setMessagePagination,
       setTraceSteps,
     ]
   );

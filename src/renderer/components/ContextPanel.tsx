@@ -30,30 +30,9 @@ import {
   Copy,
   Layers,
 } from 'lucide-react';
-import type { TraceStep, MCPServerInfo, TokenUsage } from '../types';
+import type { TraceStep, MCPServerInfo } from '../types';
 
 const EMPTY_STEPS: TraceStep[] = [];
-
-interface CacheDiagnosticsRecord {
-  version: 1;
-  provider: string;
-  modelId: string;
-  sessionReuse: boolean;
-  coldStart: boolean;
-  historySerializationVersion?: string;
-  runtimeSignatureFingerprint: string;
-  runtimeSignatureChangeReasons: string[];
-  historyMessagesAvailable: number;
-  historyMessagesInjected: number;
-  historyMessagesOmitted: number;
-  excludedCurrentTurnUser?: boolean;
-  historyCharBudget?: number;
-  historyPreambleFingerprint?: string;
-  systemPromptFingerprint: string;
-  toolsFingerprint: string;
-  fullRequestPrefixFingerprint: string;
-  cacheUsage?: TokenUsage;
-}
 
 export function ContextPanel() {
   const { t } = useTranslation();
@@ -108,6 +87,7 @@ export function ContextPanel() {
   const messageCount = messages.length;
   const toolCallCount = steps.filter((s) => s.type === 'tool_call').length;
   const modelName = activeSession?.model || appConfig?.model || '—';
+  const activeContextWindow = activeSessionId ? sessionStates[activeSessionId]?.contextWindow : 0;
 
   // Token usage aggregation
   const tokenUsage = useMemo(() => {
@@ -126,24 +106,9 @@ export function ContextPanel() {
     return { input, output, cacheRead, cacheWrite, total: input + output };
   }, [messages]);
 
-  const latestCacheDiagnostics = useMemo(() => {
-    for (let i = steps.length - 1; i >= 0; i -= 1) {
-      const step = steps[i];
-      if (!step.title.startsWith('Cache diagnostics') || !step.content) {
-        continue;
-      }
-      try {
-        return JSON.parse(step.content) as CacheDiagnosticsRecord;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }, [steps]);
-
   // Context usage: last message's input tokens ≈ current context occupation
   const contextUsage = useMemo(() => {
-    const contextWindow = activeSessionId ? sessionStates[activeSessionId]?.contextWindow : undefined;
+    const contextWindow = activeContextWindow;
     if (!contextWindow) return null;
 
     let lastInput = 0;
@@ -157,7 +122,7 @@ export function ContextPanel() {
 
     const percentage = Math.min((lastInput / contextWindow) * 100, 100);
     return { used: lastInput, total: contextWindow, percentage };
-  }, [activeSessionId, sessionStates, messages]);
+  }, [activeContextWindow, messages]);
 
   const completedStepCount = useMemo(
     () => steps.reduce((n, s) => n + (s.status === 'completed' ? 1 : 0), 0),
@@ -324,86 +289,48 @@ export function ContextPanel() {
       )}
 
       {/* Context Usage */}
-      {activeSession && contextUsage && (
+      {activeSession && (
         <div className="px-4 py-2.5 border-b border-border-muted space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
               {t('context.contextUsage')}
             </span>
-            <span className={`text-xs font-medium ${
-              contextUsage.percentage > 95 ? 'text-error' :
-              contextUsage.percentage > 80 ? 'text-warning' :
-              'text-text-primary'
-            }`}>
-              {Math.round(contextUsage.percentage)}%
-            </span>
+            {contextUsage ? (
+              <span className={`text-xs font-medium ${
+                contextUsage.percentage > 95 ? 'text-error' :
+                contextUsage.percentage > 80 ? 'text-warning' :
+                'text-text-primary'
+              }`}>
+                {Math.round(contextUsage.percentage)}%
+              </span>
+            ) : (
+              <span className="text-xs font-medium text-text-muted">--</span>
+            )}
           </div>
           <div className="h-1.5 bg-surface-muted rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-500 ease-out ${
+                !contextUsage ? 'bg-border-muted' :
                 contextUsage.percentage > 95 ? 'bg-error' :
                 contextUsage.percentage > 80 ? 'bg-warning' :
                 'bg-gradient-to-r from-accent to-accent-hover'
               }`}
-              style={{ width: `${contextUsage.percentage}%` }}
+              style={{ width: `${contextUsage ? contextUsage.percentage : 0}%` }}
             />
           </div>
-          <p className="text-xs text-text-muted">
-            {t('context.contextUsageLabel', {
-              used: formatTokenCount(contextUsage.used),
-              total: formatTokenCount(contextUsage.total),
-            })}
-          </p>
-        </div>
-      )}
-
-      {(latestCacheDiagnostics || tokenUsage.cacheRead > 0 || tokenUsage.cacheWrite > 0) && (
-        <div className="px-4 py-2.5 border-b border-border-muted space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-              Prompt Cache
-            </span>
-            <span className={`text-xs font-medium ${
-              latestCacheDiagnostics?.cacheUsage?.cacheHit === true
-                ? 'text-success'
-                : latestCacheDiagnostics?.cacheUsage?.cacheHit === false
-                  ? 'text-warning'
-                  : 'text-text-muted'
-            }`}>
-              {latestCacheDiagnostics?.cacheUsage?.cacheHit === true
-                ? 'hit'
-                : latestCacheDiagnostics?.cacheUsage?.cacheHit === false
-                  ? 'miss'
-                  : 'n/a'}
-            </span>
-          </div>
-          <p className="text-xs text-text-muted">
-            Read {formatTokenCount(tokenUsage.cacheRead)} · Write {formatTokenCount(tokenUsage.cacheWrite)}
-          </p>
-          {latestCacheDiagnostics && (
-            <>
-              <p className="text-xs text-text-muted">
-                {latestCacheDiagnostics.coldStart ? 'cold start' : 'warm session'} · reuse{' '}
-                {latestCacheDiagnostics.sessionReuse ? 'yes' : 'no'}
-              </p>
-              {latestCacheDiagnostics.historySerializationVersion && (
-                <p className="text-xs text-text-muted">
-                  History {latestCacheDiagnostics.historySerializationVersion} · current turn excluded{' '}
-                  {latestCacheDiagnostics.excludedCurrentTurnUser ? 'yes' : 'no'}
-                </p>
-              )}
-              <p className="text-xs text-text-muted">
-                FP sys {formatFingerprint(latestCacheDiagnostics.systemPromptFingerprint)} · hist{' '}
-                {formatFingerprint(latestCacheDiagnostics.historyPreambleFingerprint)} · tools{' '}
-                {formatFingerprint(latestCacheDiagnostics.toolsFingerprint)} · full{' '}
-                {formatFingerprint(latestCacheDiagnostics.fullRequestPrefixFingerprint)}
-              </p>
-              {latestCacheDiagnostics.runtimeSignatureChangeReasons.length > 0 && (
-                <p className="text-xs text-text-muted">
-                  Session reset: {latestCacheDiagnostics.runtimeSignatureChangeReasons.join(', ')}
-                </p>
-              )}
-            </>
+          {contextUsage ? (
+            <p className="text-xs text-text-muted">
+              {t('context.contextUsageLabel', {
+                used: formatTokenCount(contextUsage.used),
+                total: formatTokenCount(contextUsage.total),
+              })}
+            </p>
+          ) : (
+            <p className="text-xs text-text-muted">
+              {activeContextWindow
+                ? t('context.contextUsageWaiting')
+                : t('context.contextUsageUnavailable')}
+            </p>
           )}
         </div>
       )}
@@ -713,9 +640,4 @@ function formatTokenCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
-}
-
-function formatFingerprint(value?: string): string {
-  if (!value) return 'none';
-  return value.slice(0, 10);
 }

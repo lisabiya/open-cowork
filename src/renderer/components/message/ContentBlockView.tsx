@@ -38,6 +38,7 @@ export const ContentBlockView = memo(function ContentBlockView({
   isStreaming,
   allBlocks,
   message,
+  forceCollapsed,
 }: ContentBlockViewProps) {
   const { t } = useTranslation();
   const activeSessionId = useAppStore((s) => s.activeSessionId);
@@ -341,7 +342,12 @@ export const ContentBlockView = memo(function ContentBlockView({
 
     case 'tool_use':
       return (
-        <ToolUseBlock block={block as ToolUseContent} allBlocks={allBlocks} message={message} />
+        <ToolUseBlock
+          block={block as ToolUseContent}
+          allBlocks={allBlocks}
+          message={message}
+          forceCollapsed={forceCollapsed}
+        />
       );
 
     case 'tool_result':
@@ -350,11 +356,17 @@ export const ContentBlockView = memo(function ContentBlockView({
           block={block as ToolResultContent}
           allBlocks={allBlocks}
           message={message}
+          forceCollapsed={forceCollapsed}
         />
       );
 
     case 'thinking':
-      return <ThinkingBlock block={block as { type: 'thinking'; thinking: string }} />;
+      return (
+        <ThinkingBlock
+          block={block as { type: 'thinking'; thinking: string }}
+          forceCollapsed={forceCollapsed}
+        />
+      );
 
     default:
       return null;

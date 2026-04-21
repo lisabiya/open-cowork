@@ -33,6 +33,12 @@ export interface Message {
   executionTimeMs?: number;
 }
 
+export interface SessionMessagesPage {
+  messages: Message[];
+  hasMore: boolean;
+  oldestTimestamp: number | null;
+}
+
 export type MessageRole = 'user' | 'assistant' | 'system';
 
 export type ContentBlock =
@@ -324,7 +330,10 @@ export type ClientEvent =
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.batchDelete'; payload: { sessionIds: string[] } }
   | { type: 'session.list'; payload: Record<string, never> }
-  | { type: 'session.getMessages'; payload: { sessionId: string } }
+  | {
+      type: 'session.getMessages';
+      payload: { sessionId: string; limit?: number; beforeTimestamp?: number };
+    }
   | { type: 'session.getTraceSteps'; payload: { sessionId: string } }
   | { type: 'permission.response'; payload: { toolUseId: string; result: PermissionResult } }
   | { type: 'sudo.password.response'; payload: { toolUseId: string; password: string | null } }

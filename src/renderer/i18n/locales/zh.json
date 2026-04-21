@@ -585,6 +585,10 @@
     "startConversation": "开始对话",
     "startFailed": "启动会话失败，请稍后重试。",
     "disclaimer": "Open Cowork 由 AI 驱动，可能会出错，请务必自行复核结果。",
+    "intermediateProcess": "中间过程",
+    "processRunning": "处理中",
+    "processCompleted": "已处理",
+    "intermediateItems": "项",
     "noModel": "无模型",
     "connectorCount_one": "{{count}} 个连接器",
     "connectorCount_other": "{{count}} 个连接器"
@@ -619,7 +623,9 @@
     "copyPath": "复制路径",
     "openInFileManager": "在文件管理器中打开",
     "contextUsage": "上下文用量",
-    "contextUsageLabel": "{{used}} / {{total}}"
+    "contextUsageLabel": "{{used}} / {{total}}",
+    "contextUsageUnavailable": "暂未拿到模型上下文信息",
+    "contextUsageWaiting": "生成回复后显示"
   },
   "messageCard": {
     "request": "请求",

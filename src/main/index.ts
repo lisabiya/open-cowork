@@ -2605,7 +2605,11 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
     }
 
     case 'session.getMessages':
-      return sm.getMessages(event.payload.sessionId);
+      return sm.getMessagesPage(
+        event.payload.sessionId,
+        event.payload.limit,
+        event.payload.beforeTimestamp
+      );
 
     case 'session.getTraceSteps':
       return sm.getTraceSteps(event.payload.sessionId);

@@ -1,5 +1,5 @@
 // Fallback ToolResultBlock — only renders for truly orphan results (no matching tool_use anywhere)
-import { useState, memo, useMemo } from 'react';
+import { useState, memo, useMemo, useEffect } from 'react';
 import { ChevronDown, ChevronRight, XCircle, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../../store';
 import {
@@ -8,11 +8,12 @@ import {
   shouldUseScreenshotSummary,
 } from '../../utils/tool-result-summary';
 import type { ToolResultContent, ContentBlock, ToolUseContent, Message } from '../../types';
+import type { ProcessCollapsibleProps } from './types';
 
 // Only allow safe image MIME types for data: URI rendering
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
-interface ToolResultBlockProps {
+interface ToolResultBlockProps extends ProcessCollapsibleProps {
   block: ToolResultContent;
   allBlocks?: ContentBlock[];
   message?: Message;
@@ -22,6 +23,7 @@ export const ToolResultBlock = memo(function ToolResultBlock({
   block,
   allBlocks,
   message,
+  forceCollapsed = false,
 }: ToolResultBlockProps) {
   const traceSteps = useAppStore((s) =>
     message?.sessionId ? (s.sessionStates[message.sessionId]?.traceSteps ?? []) : []
@@ -30,6 +32,12 @@ export const ToolResultBlock = memo(function ToolResultBlock({
     message?.sessionId ? (s.sessionStates[message.sessionId]?.messages ?? []) : []
   );
   const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (forceCollapsed && expanded) {
+      setExpanded(false);
+    }
+  }, [expanded, forceCollapsed]);
 
   // If a ToolUseBlock in any message already merges this result, hide this block
   const isOrphan = useMemo(() => {

@@ -23,6 +23,7 @@ import type {
   TextContent,
   TraceStep,
   FileAttachmentContent,
+  SessionMessagesPage,
 } from '../../renderer/types';
 import type { DatabaseInstance, TraceStepRow } from '../db/database';
 import { PathResolver } from '../sandbox/path-resolver';
@@ -1070,6 +1071,38 @@ export class SessionManager {
     }));
     this.messageCache.set(sessionId, messages);
     return [...messages];
+  }
+
+  getMessagesPage(
+    sessionId: string,
+    limit = 5,
+    beforeTimestamp?: number
+  ): SessionMessagesPage {
+    const normalizedLimit = Math.max(1, Math.min(limit, 100));
+    const queryLimit = normalizedLimit + 1;
+    const rows =
+      beforeTimestamp === undefined
+        ? this.db.messages.getLatestBySessionId(sessionId, queryLimit)
+        : this.db.messages.getBeforeTimestamp(sessionId, beforeTimestamp, queryLimit);
+    const hasMore = rows.length > normalizedLimit;
+    const selectedRows = hasMore ? rows.slice(0, normalizedLimit) : rows;
+    const messages = selectedRows
+      .reverse()
+      .map((row) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as Message['role'],
+        content: this.normalizeContent(row.content),
+        timestamp: row.timestamp,
+        tokenUsage: row.token_usage ? JSON.parse(row.token_usage) : undefined,
+        executionTimeMs: row.execution_time_ms ?? undefined,
+      }));
+
+    return {
+      messages,
+      hasMore,
+      oldestTimestamp: messages[0]?.timestamp ?? null,
+    };
   }
 
   private normalizeContent(raw: string): ContentBlock[] {

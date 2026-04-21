@@ -12,6 +12,8 @@ import {
 } from '../store/selectors';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
+import { groupMessagesByTurn } from '../utils/conversation-turns';
+import { AssistantTurnGroup } from './AssistantTurnGroup';
 import { MessageCard } from './MessageCard';
 import type { Message, ContentBlock } from '../types';
 import { Send, Square, Plus, Loader2, Plug, X, Clock } from 'lucide-react';
@@ -24,6 +26,7 @@ const CHAT_INPUT_MIN_HEIGHT_PX =
   CHAT_INPUT_MIN_ROWS * CHAT_INPUT_LINE_HEIGHT_PX + CHAT_INPUT_VERTICAL_PADDING_PX;
 const CHAT_INPUT_MAX_HEIGHT_PX =
   CHAT_INPUT_MAX_ROWS * CHAT_INPUT_LINE_HEIGHT_PX + CHAT_INPUT_VERTICAL_PADDING_PX;
+const MESSAGES_PAGE_SIZE = 5;
 
 type AttachedFile = {
   name: string;
@@ -44,8 +47,25 @@ export function ChatView() {
   const pendingTurns = usePendingTurns();
   const executionClock = useActiveExecutionClock();
   const appConfig = useAppConfig();
+  const messagePagination = useAppStore((s) =>
+    activeSessionId
+      ? s.sessionStates[activeSessionId]?.messagePagination ?? {
+          hasMore: false,
+          oldestTimestamp: null,
+          initialLoaded: false,
+          loadingOlder: false,
+        }
+      : {
+          hasMore: false,
+          oldestTimestamp: null,
+          initialLoaded: false,
+          loadingOlder: false,
+        }
+  );
+  const prependMessages = useAppStore((s) => s.prependMessages);
+  const setMessagePagination = useAppStore((s) => s.setMessagePagination);
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
-  const { continueSession, stopSession, isElectron } = useIPC();
+  const { continueSession, stopSession, getSessionMessages, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeConnectors, setActiveConnectors] = useState<
@@ -71,6 +91,11 @@ export function ChatView() {
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRequestRef = useRef<number | null>(null);
   const isScrollingRef = useRef(false);
+  const pendingPrependRestoreRef = useRef<{ previousHeight: number; previousTop: number } | null>(
+    null
+  );
+  const initialScrollDoneRef = useRef(false);
+  const loadingOlderRef = useRef(false);
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
@@ -126,6 +151,88 @@ export function ChatView() {
 
     return [...messages.slice(0, insertIndex), streamingMessage, ...messages.slice(insertIndex)];
   }, [activeSessionId, activeTurn?.userMessageId, messages, partialMessage, partialThinking]);
+
+  const conversationTurns = useMemo(
+    () => groupMessagesByTurn(displayedMessages),
+    [displayedMessages]
+  );
+
+  const forceScrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = null;
+    }
+    if (scrollRequestRef.current) {
+      cancelAnimationFrame(scrollRequestRef.current);
+      scrollRequestRef.current = null;
+    }
+
+    isScrollingRef.current = true;
+    messagesEndRef.current?.scrollIntoView({ behavior });
+    setTimeout(
+      () => {
+        isScrollingRef.current = false;
+        isUserAtBottomRef.current = true;
+      },
+      behavior === 'smooth' ? 300 : 50
+    );
+  }, []);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!activeSessionId || !isElectron) return;
+    if (!messagePagination.hasMore || messagePagination.loadingOlder || loadingOlderRef.current) {
+      return;
+    }
+    if (messagePagination.oldestTimestamp == null) return;
+
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const canScrollForPagination = container.scrollHeight > container.clientHeight + 16;
+    if (!canScrollForPagination) {
+      return;
+    }
+
+    pendingPrependRestoreRef.current = {
+      previousHeight: container.scrollHeight,
+      previousTop: container.scrollTop,
+    };
+    loadingOlderRef.current = true;
+    setMessagePagination(activeSessionId, { loadingOlder: true });
+
+    try {
+      const page = await getSessionMessages(activeSessionId, {
+        limit: MESSAGES_PAGE_SIZE,
+        beforeTimestamp: messagePagination.oldestTimestamp,
+      });
+      if (page.messages.length > 0) {
+        prependMessages(activeSessionId, page.messages);
+      } else {
+        pendingPrependRestoreRef.current = null;
+      }
+      setMessagePagination(activeSessionId, {
+        hasMore: page.hasMore,
+        oldestTimestamp: page.oldestTimestamp,
+        initialLoaded: true,
+        loadingOlder: false,
+      });
+    } catch (error) {
+      pendingPrependRestoreRef.current = null;
+      setMessagePagination(activeSessionId, { loadingOlder: false });
+      console.error('[ChatView] Failed to load older messages:', error);
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  }, [
+    activeSessionId,
+    getSessionMessages,
+    isElectron,
+    messagePagination.hasMore,
+    messagePagination.loadingOlder,
+    messagePagination.oldestTimestamp,
+    prependMessages,
+    setMessagePagination,
+  ]);
 
   // Format execution time for display
   const formatExecutionTime = useCallback((ms: number): string => {
@@ -206,12 +313,37 @@ export function ChatView() {
     };
     updateScrollState();
     // 用户阅读旧消息时，阻止新消息自动滚动打断视线
-    const onScroll = () => updateScrollState();
+    const onScroll = () => {
+      updateScrollState();
+      if (container.scrollTop <= 80) {
+        void loadOlderMessages();
+      }
+    };
     container.addEventListener('scroll', onScroll, { passive: true });
     return () => container.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [loadOlderMessages]);
 
   useEffect(() => {
+    initialScrollDoneRef.current = false;
+    pendingPrependRestoreRef.current = null;
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    if (pendingPrependRestoreRef.current) {
+      const { previousHeight, previousTop } = pendingPrependRestoreRef.current;
+      pendingPrependRestoreRef.current = null;
+      requestAnimationFrame(() => {
+        const nextHeight = container.scrollHeight;
+        container.scrollTop = previousTop + (nextHeight - previousHeight);
+      });
+      prevMessageCountRef.current = messages.length;
+      prevPartialLengthRef.current = partialMessage.length + partialThinking.length;
+      return;
+    }
+
     const messageCount = messages.length;
     const partialLength = partialMessage.length + partialThinking.length;
     const hasNewMessage = messageCount !== prevMessageCountRef.current;
@@ -238,6 +370,16 @@ export function ChatView() {
     prevMessageCountRef.current = messageCount;
     prevPartialLengthRef.current = partialLength;
   }, [messages.length, partialMessage.length, partialThinking.length]);
+
+  useEffect(() => {
+    if (!activeSessionId || !messagePagination.initialLoaded || initialScrollDoneRef.current) {
+      return;
+    }
+    initialScrollDoneRef.current = true;
+    requestAnimationFrame(() => {
+      forceScrollToBottom('auto');
+    });
+  }, [activeSessionId, forceScrollToBottom, messagePagination.initialLoaded]);
 
   // Additional scroll trigger for content height changes (e.g., TodoWrite expand/collapse)
   useEffect(() => {
@@ -710,15 +852,24 @@ export function ChatView() {
               <p className="text-base text-text-secondary">{t('chat.startConversation')}</p>
             </div>
           ) : (
-            displayedMessages.map((message) => {
-              const isStreaming =
-                typeof message.id === 'string' && message.id.startsWith('partial-');
-              return (
-                <div key={message.id}>
-                  <MessageCard message={message} isStreaming={isStreaming} />
-                </div>
-              );
-            })
+            conversationTurns.map((turn, index) => (
+              <div
+                key={turn.userMessage?.id ?? turn.assistantMessages[0]?.id ?? `turn-${index}`}
+                className="space-y-1.5"
+              >
+                {turn.userMessage && <MessageCard message={turn.userMessage} />}
+                {turn.assistantMessages.length > 0 && (
+                  <AssistantTurnGroup
+                    messages={turn.assistantMessages}
+                    isProcessing={
+                      (turn.userMessage?.id != null &&
+                        turn.userMessage.id === activeTurn?.userMessageId) ||
+                      turn.assistantMessages.some((message) => message.id.startsWith('partial-'))
+                    }
+                  />
+                )}
+              </div>
+            ))
           )}
 
           {/* Processing indicator - show when we have an active turn but no streaming content yet */}

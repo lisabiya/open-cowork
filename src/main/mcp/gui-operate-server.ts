@@ -4300,7 +4300,7 @@ async function callVisionAPIWithTimeout(
   // Route inference must rely on semantic OpenAI hints (base/model), not key presence.
   const hasOpenAIConfig = Boolean(openAIBaseUrl || openAIModel);
   const baseUrl = openAIBaseUrl || anthropicBaseUrl;
-  const model = openAIModel || anthropicModel || 'claude-3-5-sonnet-20241022';
+  const model = openAIModel || anthropicModel || 'claude-sonnet-4-6';
 
   // Check if using OpenRouter
   const isOpenRouter =

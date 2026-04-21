@@ -65,6 +65,10 @@ import {
   diffPiSessionRuntimeSignatures,
 } from './pi-session-runtime';
 import { ThinkTagStreamParser } from './think-tag-parser';
+import {
+  normalizeMcpToolResultForModel,
+  normalizeToolExecutionResultForUi,
+} from './tool-result-utils';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { executeWindowsBash } from '../tools/windows-bash-executor';
 import { resolvePreferredWindowsShell, getWindowsRegistryPathEntries } from '../runtime/runtime-resolver';
@@ -398,21 +402,13 @@ function buildMcpCustomTools(mcpManager: MCPManager): ToolDefinition[] {
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
         try {
           const result = await mcpManager.callTool(mcpTool.name, params as Record<string, unknown>);
-          // MCP callTool returns { content: [...] } — extract text
-          const textParts: string[] = [];
-          const resultObj = result as Record<string, unknown>;
-          if (resultObj?.content) {
-            const contentArr = resultObj.content as Array<Record<string, unknown>>;
-            for (const part of contentArr) {
-              if (part.type === 'text') textParts.push(String(part.text));
-              else textParts.push(JSON.stringify(part));
-            }
-          } else {
-            textParts.push(typeof result === 'string' ? result : JSON.stringify(result));
-          }
+          const normalizedResult = normalizeMcpToolResultForModel(result);
           return {
-            content: [{ type: 'text' as const, text: textParts.join('\n') }],
-            details: undefined as unknown,
+            content: [{ type: 'text' as const, text: normalizedResult.text }],
+            details:
+              normalizedResult.images.length > 0
+                ? { openCoworkImages: normalizedResult.images }
+                : undefined,
           };
         } catch (err: unknown) {
           logError(`[ClaudeAgentRunner] MCP tool ${mcpTool.name} failed:`, err);
@@ -1191,7 +1187,7 @@ ${hints.join('\n')}
   private getCurrentModelString(preferredModel?: string): string {
     const routeModel = preferredModel?.trim();
     const configuredModel = configStore.get('model')?.trim();
-    const model = routeModel || configuredModel || 'anthropic/claude-sonnet-4';
+    const model = routeModel || configuredModel || 'anthropic/claude-sonnet-4-6';
     logCtx('[ClaudeAgentRunner] Current model:', model);
     logCtx(
       '[ClaudeAgentRunner] Model source:',
@@ -2658,10 +2654,8 @@ Tool routing:
               if (controller.signal.aborted) break;
               const toolCallId = event.toolCallId;
               const isError = event.isError;
-              const outputText =
-                typeof event.result === 'string'
-                  ? event.result
-                  : JSON.stringify(event.result || '');
+              const normalizedToolResult = normalizeToolExecutionResultForUi(event.result);
+              const outputText = normalizedToolResult.content;
               this.sendTraceUpdate(session.id, toolCallId, {
                 status: isError ? 'error' : 'completed',
                 toolName: event.toolName,
@@ -2679,6 +2673,9 @@ Tool routing:
                     toolUseId: toolCallId,
                     content: sanitizeOutputPaths(outputText),
                     isError,
+                    ...(normalizedToolResult.images.length > 0
+                      ? { images: normalizedToolResult.images }
+                      : {}),
                   },
                 ],
                 timestamp: Date.now(),

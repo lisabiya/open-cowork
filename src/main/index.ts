@@ -782,6 +782,23 @@ function sendToRenderer(event: ServerEvent) {
 app
   .whenReady()
   .then(async () => {
+    // Smoke test mode: verify the app can start, then exit cleanly
+    if (process.argv.includes('--smoke-test')) {
+      log('[SmokeTest] App launched successfully in smoke test mode');
+      log('[SmokeTest] Platform:', process.platform, 'Arch:', process.arch);
+      log('[SmokeTest] Electron:', process.versions.electron, 'Node:', process.versions.node);
+      try {
+        // Verify critical native modules load
+        require('better-sqlite3');
+        log('[SmokeTest] better-sqlite3: OK');
+      } catch (e) {
+        log('[SmokeTest] FAIL: better-sqlite3 failed to load:', e);
+        process.exit(1);
+      }
+      log('[SmokeTest] PASSED');
+      process.exit(0);
+    }
+
     // Apply dev logs setting from config
     const enableDevLogs = configStore.get('enableDevLogs');
     setDevLogsEnabled(enableDevLogs);
@@ -2318,6 +2335,16 @@ ipcMain.handle('remote.revokePairing', (_event, channelType: ChannelType, userId
     return { success };
   } catch (error) {
     logError('[Remote] Error revoking pairing:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('remote.rejectPairing', (_event, channelType: ChannelType, userId: string) => {
+  try {
+    const success = remoteManager.rejectPairing(channelType, userId);
+    return { success };
+  } catch (error) {
+    logError('[Remote] Error rejecting pairing:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });

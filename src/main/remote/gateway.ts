@@ -359,6 +359,9 @@ export class RemoteGateway extends EventEmitter {
         return this.pairedUsers.has(pairedKey);
       }
 
+      case 'open':
+        return true;
+
       default:
         return false;
     }
@@ -496,6 +499,23 @@ export class RemoteGateway extends EventEmitter {
 
     this.pairingRequests.delete(userKey);
     log('[Gateway] Pairing approved:', userKey);
+    return true;
+  }
+
+  /**
+   * Reject pairing request (called from UI)
+   */
+  rejectPairing(channelType: ChannelType, userId: string): boolean {
+    const userKey = `${channelType}:${userId}`;
+    const request = this.pairingRequests.get(userKey);
+
+    if (!request) {
+      logWarn('[Gateway] No pairing request found for:', userKey);
+      return false;
+    }
+
+    this.pairingRequests.delete(userKey);
+    log('[Gateway] Pairing rejected:', userKey);
     return true;
   }
 

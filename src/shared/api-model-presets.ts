@@ -1,4 +1,10 @@
-export type SharedProviderType = 'openrouter' | 'anthropic' | 'custom' | 'openai' | 'gemini' | 'ollama';
+export type SharedProviderType =
+  | 'openrouter'
+  | 'anthropic'
+  | 'custom'
+  | 'openai'
+  | 'gemini'
+  | 'ollama';
 
 export type SharedCustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 
@@ -60,11 +66,11 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     models: [
       { id: 'gpt-5.4', name: 'gpt-5.4' },
       { id: 'gpt-5.4-pro', name: 'gpt-5.4-pro' },
-      { id: 'gpt-5-mini', name: 'gpt-5-mini' },
-      { id: 'gpt-5-nano', name: 'gpt-5-nano' },
+      { id: 'gpt-5.4-mini', name: 'gpt-5.4-mini' },
+      { id: 'gpt-5.4-nano', name: 'gpt-5.4-nano' },
       { id: 'gpt-5.3-codex', name: 'gpt-5.3-codex' },
       { id: 'o3', name: 'o3' },
-      { id: 'gpt-4.1', name: 'gpt-4.1' },
+      { id: 'o4-mini', name: 'o4-mini' },
     ],
     keyPlaceholder: 'sk-...',
     keyHint: '从 platform.openai.com 获取',
@@ -128,15 +134,36 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
   },
   anthropic: {
     piProvider: 'anthropic',
-    pick: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-sonnet-4-5', 'claude-3-7-sonnet-latest'],
+    pick: [
+      'claude-opus-4-6',
+      'claude-sonnet-4-6',
+      'claude-haiku-4-5',
+      'claude-sonnet-4-5',
+      'claude-3-7-sonnet-latest',
+    ],
   },
   openai: {
     piProvider: 'openai',
-    pick: ['gpt-5.4', 'gpt-5.4-pro', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.3-codex', 'o3', 'gpt-4.1'],
+    pick: [
+      'gpt-5.4',
+      'gpt-5.4-pro',
+      'gpt-5.4-mini',
+      'gpt-5.4-nano',
+      'gpt-5.3-codex',
+      'o3',
+      'o4-mini',
+    ],
   },
   gemini: {
     piProvider: 'google',
-    pick: ['gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+    pick: [
+      'gemini-3.1-pro-preview',
+      'gemini-3-flash-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+    ],
   },
 };
 
@@ -153,7 +180,7 @@ export function getModelInputGuidance(
 
   if (provider === 'custom' && customProtocol === 'openai') {
     return {
-      placeholder: 'deepseek-chat, deepseek-reasoner, qwen-max, gpt-4.1',
+      placeholder: 'deepseek-chat, deepseek-reasoner, qwen-max, gpt-5.4-mini',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
@@ -174,7 +201,7 @@ export function getModelInputGuidance(
 
   if (provider === 'openai') {
     return {
-      placeholder: 'gpt-5.4, gpt-5.3-codex, o3',
+      placeholder: 'gpt-5.4, gpt-5.4-mini, o3',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }

@@ -183,7 +183,7 @@ export function resolveSyntheticPiModelFallback(
 export function resolvePiModelString(input: PiModelStringInput): string {
   const model = input.model?.trim();
   if (!model) {
-    return input.defaultModel || 'anthropic/claude-sonnet-4';
+    return input.defaultModel || 'anthropic/claude-sonnet-4-6';
   }
   if (model.includes('/')) {
     return model;

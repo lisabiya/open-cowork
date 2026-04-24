@@ -58,6 +58,14 @@ export interface RemoteConfig {
         policy: string;
       };
     };
+    slack?: {
+      botToken: string;
+      appToken?: string;
+      useSocketMode?: boolean;
+      dm: {
+        policy: string;
+      };
+    };
   };
 }
 

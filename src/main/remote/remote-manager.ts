@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { RemoteGateway } from './gateway';
 import { MessageRouter } from './message-router';
 import { FeishuChannel } from './channels/feishu';
+import { SlackChannel } from './channels/slack';
 import { remoteConfigStore } from './remote-config-store';
 import { tunnelManager, TunnelStatus } from './tunnel-manager';
 import { buildRemoteSessionTitle } from './remote-title';
@@ -1135,6 +1136,28 @@ export class RemoteManager extends EventEmitter {
       );
 
       log('[RemoteManager] Feishu channel registered');
+    }
+
+    // Register Slack channel if configured
+    const slackConfig = config.channels.slack;
+    if (slackConfig && slackConfig.botToken) {
+      const slackChannel = new SlackChannel(slackConfig);
+      this.gateway.registerChannel(slackChannel);
+
+      // Set up webhook handler for webhook mode
+      this.gateway.on(
+        'webhook:slack',
+        (data: {
+          headers: Record<string, string>;
+          body: string;
+          respond: (status: number, responseData: unknown) => void;
+        }) => {
+          const result = slackChannel.handleWebhook(data.headers, data.body);
+          data.respond(result.status, result.data);
+        }
+      );
+
+      log('[RemoteManager] Slack channel registered');
     }
 
     // TODO: Register other channels (WeChat, Telegram, DingTalk)

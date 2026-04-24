@@ -77,7 +77,7 @@ export interface TunnelConfig {
 // Channel Configuration
 // ============================================================================
 
-export type ChannelType = 'feishu' | 'wechat' | 'telegram' | 'dingtalk' | 'websocket';
+export type ChannelType = 'feishu' | 'wechat' | 'telegram' | 'dingtalk' | 'websocket' | 'slack';
 
 export interface ChannelConfig {
   /** Channel type */
@@ -92,7 +92,8 @@ export interface ChannelConfig {
     | WechatChannelConfig
     | TelegramChannelConfig
     | DingtalkChannelConfig
-    | WebSocketChannelConfig;
+    | WebSocketChannelConfig
+    | SlackChannelConfig;
 }
 
 // Feishu (飞书) Channel
@@ -212,6 +213,37 @@ export interface DingtalkChannelConfig {
   /** Group configuration */
   groups?: {
     [conversationId: string]: {
+      requireMention: boolean;
+      allowFrom?: string[];
+    };
+  };
+}
+
+// Slack Channel
+export interface SlackChannelConfig {
+  type: 'slack';
+
+  /** Bot User OAuth Token (xoxb-...) */
+  botToken: string;
+
+  /** App-Level Token for Socket Mode (xapp-...) */
+  appToken?: string;
+
+  /** Use Socket Mode instead of webhook (recommended for local dev) */
+  useSocketMode?: boolean;
+
+  /** Signing secret for webhook verification */
+  signingSecret?: string;
+
+  /** DM policy */
+  dm: {
+    policy: 'open' | 'pairing' | 'allowlist';
+    allowFrom?: string[]; // Slack user IDs
+  };
+
+  /** Channel configuration */
+  channels?: {
+    [channelId: string]: {
       requireMention: boolean;
       allowFrom?: string[];
     };
@@ -524,6 +556,7 @@ export interface RemoteConfig {
     telegram?: TelegramChannelConfig;
     dingtalk?: DingtalkChannelConfig;
     websocket?: WebSocketChannelConfig;
+    slack?: SlackChannelConfig;
   };
 }
 

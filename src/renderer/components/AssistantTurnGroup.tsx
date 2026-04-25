@@ -30,21 +30,20 @@ export const AssistantTurnGroup = memo(function AssistantTurnGroup({
   const { t } = useTranslation();
   const [processExpanded, setProcessExpanded] = useState(false);
   const { processItems, finalMessages } = useMemo(
-    () => splitAssistantTurnMessages(messages),
-    [messages]
+    () => splitAssistantTurnMessages(messages, { isProcessing }),
+    [isProcessing, messages]
   );
-  const hasFinalMessages = finalMessages.length > 0;
 
   useEffect(() => {
-    if (isProcessing && !hasFinalMessages && processItems.length > 0) {
+    if (isProcessing && processItems.length > 0) {
       setProcessExpanded(true);
       return;
     }
 
-    if (hasFinalMessages || !isProcessing) {
+    if (!isProcessing) {
       setProcessExpanded(false);
     }
-  }, [hasFinalMessages, isProcessing, processItems.length]);
+  }, [isProcessing, processItems.length]);
 
   if (processItems.length === 0 && finalMessages.length === 0) {
     return null;
@@ -61,9 +60,7 @@ export const AssistantTurnGroup = memo(function AssistantTurnGroup({
           >
             <Workflow className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
             <span className="text-xs font-medium text-text-muted flex-1 min-w-0">
-              {isProcessing && !hasFinalMessages
-                ? t('chat.processRunning')
-                : t('chat.processCompleted')}
+              {isProcessing ? t('chat.processRunning') : t('chat.processCompleted')}
             </span>
             <span className="text-[11px] text-text-muted/70 flex-shrink-0">
               {processItems.length} {t('chat.intermediateItems')}

@@ -8,12 +8,14 @@ type MessageEndMessage = Pick<AssistantMessage, 'role' | 'content' | 'stopReason
 interface ResolveMessageEndPayloadOptions {
   message?: MessageEndMessage;
   streamedText: string;
+  streamedThinking?: string;
 }
 
 interface ResolvedMessageEndPayload {
   effectiveContent: MessageEndContentBlock[];
   errorText?: string;
   nextStreamedText: string;
+  nextStreamedThinking: string;
   shouldEmitMessage: boolean;
 }
 
@@ -138,14 +140,16 @@ export function toUserFacingErrorText(errorText: string): string {
 export function resolveMessageEndPayload(
   options: ResolveMessageEndPayloadOptions
 ): ResolvedMessageEndPayload {
-  const { message, streamedText } = options;
+  const { message, streamedText, streamedThinking = '' } = options;
   const nextStreamedText = '';
+  const nextStreamedThinking = '';
 
   if (message?.stopReason === 'error' && message.errorMessage) {
     return {
       effectiveContent: [],
       errorText: toUserFacingErrorText(message.errorMessage),
       nextStreamedText,
+      nextStreamedThinking,
       shouldEmitMessage: false,
     };
   }
@@ -155,6 +159,8 @@ export function resolveMessageEndPayload(
       ? message.content
       : streamedText
         ? [{ type: 'text' as const, text: streamedText }]
+        : streamedThinking.trim()
+          ? [{ type: 'thinking' as const, thinking: streamedThinking.trim() }]
         : [];
 
   if (rawContent.length === 0) {
@@ -162,6 +168,7 @@ export function resolveMessageEndPayload(
       effectiveContent: [],
       errorText: toUserFacingErrorText('empty_success_result'),
       nextStreamedText,
+      nextStreamedThinking,
       shouldEmitMessage: false,
     };
   }
@@ -190,6 +197,7 @@ export function resolveMessageEndPayload(
   return {
     effectiveContent,
     nextStreamedText,
+    nextStreamedThinking,
     shouldEmitMessage: effectiveContent.length > 0 && (message?.role === 'assistant' || !message),
   };
 }

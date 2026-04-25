@@ -285,6 +285,14 @@ async function runPiAiOneShot(
   return { text, hasThinking, durationMs: Date.now() - start };
 }
 
+export async function completeWithClaudeSdk(
+  prompt: string,
+  systemPrompt: string,
+  config: AppConfig
+): Promise<{ text: string; hasThinking: boolean; durationMs: number }> {
+  return runPiAiOneShot(prompt, systemPrompt, config);
+}
+
 function normalizeProbeAck(raw: string): string {
   // Strip markdown formatting and quotes around/between words, but preserve
   // underscores inside words (PROBE_ACK = 'sdk_probe_ok' contains underscores).

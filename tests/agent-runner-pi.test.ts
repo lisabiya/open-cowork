@@ -33,9 +33,11 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
     expect(agentRunnerContent).toContain('const conversationMessages = existingMessages');
     // Image-containing messages are filtered out individually (not skipping entire history)
     expect(agentRunnerContent).toContain('const textOnlyMessages = conversationMessages');
-    expect(agentRunnerContent).toContain('textOnlyMessages.slice(0, -1)');
     expect(agentRunnerContent).toContain(
-      "textOnlyMessages[textOnlyMessages.length - 1]?.role === 'user'"
+      'const candidateEntries = excludedCurrentTurnUser ? historyEntries.slice(0, -1)'
+    );
+    expect(agentRunnerContent).toContain(
+      "historyEntries[historyEntries.length - 1]?.role === 'user'"
     );
   });
 
@@ -72,9 +74,7 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
   });
 
   it('recreates cached pi sessions when the runtime signature changes', () => {
-    expect(agentRunnerContent).toContain(
-      "import { buildPiSessionRuntimeSignature } from './pi-session-runtime'"
-    );
+    expect(agentRunnerContent).toContain('buildPiSessionRuntimeSignature,');
     expect(agentRunnerContent).toContain(
       'const sessionRuntimeSignature = buildPiSessionRuntimeSignature({'
     );

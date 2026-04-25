@@ -15,7 +15,7 @@
  */
 
 import { log, logError } from '../utils/logger';
-import { isPathWithinRoot } from '../tools/path-containment';
+import { isPathWithinRoot } from '../../shared/path-containment';
 
 const LIMA_INSTANCE_NAME = 'claude-sandbox';
 

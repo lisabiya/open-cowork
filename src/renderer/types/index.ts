@@ -93,6 +93,8 @@ export interface ToolResultContent {
 export interface ThinkingContent {
   type: 'thinking';
   thinking: string;
+  thinkingSignature?: string;
+  redacted?: boolean;
 }
 
 export interface TokenUsage {
@@ -101,6 +103,51 @@ export interface TokenUsage {
   cacheRead?: number;
   cacheWrite?: number;
   cacheHit?: boolean;
+}
+
+export type MemoryStrategy = 'auto' | 'manual' | 'rolling';
+export type TokenWarningState = 'normal' | 'warning' | 'error' | 'blocking';
+export type CompactionType = 'micro' | 'full';
+export type CompactionTrigger = 'auto' | 'manual' | 'rolling';
+
+export interface SessionContextConfig {
+  memoryStrategy: MemoryStrategy;
+  maxContextTokens: number;
+}
+
+export interface TokenBudgetSnapshot {
+  contextWindow: number;
+  maxContextTokens: number;
+  estimatedConversationTokens: number;
+  estimatedSystemPromptTokens: number;
+  estimatedTotalTokens: number;
+  availableTokens: number;
+  reserveTokens: number;
+  usageRatio: number;
+  warningState: TokenWarningState;
+  strategy: MemoryStrategy;
+  lastUpdatedAt: number;
+}
+
+export interface SessionCompactionInfo {
+  sessionId: string;
+  compactionType: CompactionType;
+  trigger: CompactionTrigger;
+  boundaryCreated: boolean;
+  estimatedTokensBefore: number;
+  estimatedTokensAfter: number;
+  preservedTailCount: number;
+  compactedMessageCount: number;
+  createdAt: number;
+  summaryPreview?: string;
+}
+
+export interface SessionCompactionState {
+  sessionId: string;
+  compactionType: CompactionType;
+  trigger: CompactionTrigger;
+  startedAt: number;
+  message: string;
 }
 
 // Trace types for visualization
@@ -324,8 +371,9 @@ export interface PermissionRule {
 
 // IPC Event types
 export type ClientEvent =
-  | { type: 'session.start'; payload: { title: string; prompt: string; cwd?: string; allowedTools?: string[]; content?: ContentBlock[] } }
-  | { type: 'session.continue'; payload: { sessionId: string; prompt: string; content?: ContentBlock[] } }
+  | { type: 'session.start'; payload: { title: string; prompt: string; cwd?: string; allowedTools?: string[]; content?: ContentBlock[]; contextConfig?: SessionContextConfig } }
+  | { type: 'session.continue'; payload: { sessionId: string; prompt: string; content?: ContentBlock[]; contextConfig?: SessionContextConfig } }
+  | { type: 'session.compact'; payload: { sessionId: string } }
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.batchDelete'; payload: { sessionIds: string[] } }
@@ -403,6 +451,10 @@ export type ServerEvent =
   | { type: 'plugins.runtimeApplied'; payload: { sessionId: string; plugins: Array<{ name: string; path: string }> } }
   | { type: 'workdir.changed'; payload: { path: string } }
   | { type: 'session.contextInfo'; payload: { sessionId: string; contextWindow: number } }
+  | { type: 'session.tokenBudget'; payload: { sessionId: string; snapshot: TokenBudgetSnapshot } }
+  | { type: 'session.compactionState'; payload: { sessionId: string; state: SessionCompactionState | null } }
+  | { type: 'session.compaction'; payload: { sessionId: string; info: SessionCompactionInfo } }
+  | { type: 'session.compactionNotice'; payload: { sessionId: string; level: 'info' | 'warning' | 'error'; message: string } }
   | { type: 'navigate.to'; payload: { page: 'welcome' | 'settings' | 'session'; tab?: string; sessionId?: string } }
   | { type: 'native-theme.changed'; payload: { shouldUseDarkColors: boolean } }
   | { type: 'new-session' }
@@ -417,7 +469,7 @@ export interface Settings {
   defaultTools: string[];
   permissionRules: PermissionRule[];
   globalSkillsPath: string;
-  memoryStrategy: 'auto' | 'manual' | 'rolling';
+  memoryStrategy: MemoryStrategy;
   maxContextTokens: number;
 }
 
@@ -495,6 +547,8 @@ export interface AppConfig {
   defaultWorkdir?: string;
   globalSkillsPath?: string;
   theme?: AppTheme;
+  memoryStrategy?: MemoryStrategy;
+  maxContextTokens?: number;
   sandboxEnabled?: boolean;
   enableThinking?: boolean;
   isConfigured: boolean;

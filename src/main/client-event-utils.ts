@@ -4,6 +4,7 @@ export function eventRequiresSessionManager(event: ClientEvent): boolean {
   switch (event.type) {
     case 'session.start':
     case 'session.continue':
+    case 'session.compact':
     case 'session.stop':
     case 'session.delete':
     case 'session.batchDelete':

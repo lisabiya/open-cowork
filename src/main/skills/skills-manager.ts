@@ -13,12 +13,17 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
 import chokidar, { type FSWatcher } from 'chokidar';
 import type { Skill, PluginInstallResult } from '../../renderer/types';
 import type { DatabaseInstance } from '../db/database';
 import { log, logError, logWarn } from '../utils/logger';
-import { isPathWithinRoot } from '../tools/path-containment';
+import { isPathWithinRoot } from '../../shared/path-containment';
+import {
+  getDefaultGlobalSkillsPath,
+  getUserClaudeSkillsDir,
+  resolveBuiltinSkillsPath,
+  resolveGlobalSkillsPath,
+} from './skill-paths';
 
 /**
  * Validate that a skill name is safe for use as a directory name.
@@ -177,74 +182,20 @@ export class SkillsManager {
    * Get the built-in skills directory path
    */
   private getBuiltinSkillsPath(): string {
-    const appPath = app.getAppPath();
-    const unpackedPath = appPath.replace(/\.asar$/, '.asar.unpacked');
-
-    const possiblePaths = [
-      // Development
-      path.join(__dirname, '..', '..', '..', '.claude', 'skills'),
-      // Production: extraResources extracts .claude/skills → resources/skills
-      path.join(process.resourcesPath || '', 'skills'),
-      // Legacy: in app.asar.unpacked (for older builds with asarUnpack)
-      ...(this.physicalDirExists(path.join(unpackedPath, '.claude', 'skills'))
-        ? [path.join(unpackedPath, '.claude', 'skills')]
-        : []),
-      // Last resort: read from inside the asar archive (Electron intercepts this)
-      path.join(appPath, '.claude', 'skills'),
-    ];
-
-    for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
-        return p;
-      }
-    }
-
-    return '';
-  }
-
-  /**
-   * Check if a directory physically exists on disk, bypassing Electron's
-   * asar interception. Uses try/catch with lstatSync on the real filesystem.
-   */
-  private physicalDirExists(dirPath: string): boolean {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const originalFs = require('original-fs') as typeof import('fs');
-      return originalFs.existsSync(dirPath) && originalFs.statSync(dirPath).isDirectory();
-    } catch {
-      return false;
-    }
+    return resolveBuiltinSkillsPath();
   }
 
   private getDefaultGlobalSkillsPath(): string {
-    return path.join(app.getPath('userData'), 'claude', 'skills');
+    return getDefaultGlobalSkillsPath();
   }
 
   getGlobalSkillsPath(): string {
     const fallbackPath = this.getDefaultGlobalSkillsPath();
     const configuredPath = (this.getConfiguredGlobalSkillsPathFn?.() || '').trim();
-    const preferredPath = configuredPath ? path.resolve(configuredPath) : fallbackPath;
-
-    // Validate resolved path is within expected directories
-    if (configuredPath) {
-      const resolved = path.resolve(configuredPath);
-      const allowedBases = [app.getPath('userData'), app.getPath('home'), process.cwd()];
-      const isWithinAllowed = allowedBases.some((base) => isPathWithinRoot(resolved, base));
-      if (!isWithinAllowed) {
-        throw new Error(`Skills path outside allowed directories: ${resolved}`);
-      }
-    }
-
-    try {
-      if (!fs.existsSync(preferredPath)) {
-        fs.mkdirSync(preferredPath, { recursive: true });
-      }
-      if (!fs.statSync(preferredPath).isDirectory()) {
-        throw new Error('Configured path is not a directory');
-      }
-      return preferredPath;
-    } catch (error) {
-      if (preferredPath !== fallbackPath) {
+    return resolveGlobalSkillsPath({
+      configuredPath,
+      validateConfiguredPath: true,
+      onFallback: (_fallbackPath, preferredPath) => {
         logWarn(
           `[Skills] Configured skills path is unavailable, fallback to default: ${preferredPath}`
         );
@@ -254,12 +205,8 @@ export class SkillsManager {
           reason: 'fallback',
           message: 'Configured skills directory is unavailable, fallback to default directory.',
         });
-      }
-      if (!fs.existsSync(fallbackPath)) {
-        fs.mkdirSync(fallbackPath, { recursive: true });
-      }
-      return fallbackPath;
-    }
+      },
+    });
   }
 
   onStorageChanged(callback: (event: SkillsStorageChangeEvent) => void): () => void {
@@ -410,7 +357,7 @@ export class SkillsManager {
   }
 
   private getUserSkillsPath(): string {
-    return path.join(app.getPath('home'), '.claude', 'skills');
+    return getUserClaudeSkillsDir();
   }
 
   private async importUserSkills(globalSkillsPath: string): Promise<void> {

@@ -24,37 +24,17 @@ import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
 import {
   configStore,
-  getPiAiModelPresets,
   type AppConfig,
   type AppTheme,
-  type CreateConfigSetPayload,
 } from './config/config-store';
-import { runConfigApiTest } from './config/config-test-routing';
-import { listOllamaModels } from './config/ollama-api';
-import { mcpConfigStore } from './mcp/mcp-config-store';
-import { getSandboxAdapter, shutdownSandbox } from './sandbox/sandbox-adapter';
+import { shutdownSandbox } from './sandbox/sandbox-adapter';
 import { SandboxSync } from './sandbox/sandbox-sync';
-import { WSLBridge } from './sandbox/wsl-bridge';
-import { LimaBridge } from './sandbox/lima-bridge';
 import { getSandboxBootstrap } from './sandbox/sandbox-bootstrap';
-import type { MCPServerConfig } from './mcp/mcp-manager';
-import type {
-  ClientEvent,
-  ServerEvent,
-  ApiTestInput,
-  ApiTestResult,
-  DiagnosticInput,
-  ProviderModelInfo,
-} from '../renderer/types';
+import type { ClientEvent, ServerEvent } from '../renderer/types';
 import { remoteManager, type AgentExecutor } from './remote/remote-manager';
 import { remoteConfigStore } from './remote/remote-config-store';
-import type { GatewayConfig, FeishuChannelConfig, ChannelType } from './remote/types';
 import { startNavServer, stopNavServer } from './nav-server';
-import {
-  ScheduledTaskManager,
-  type ScheduledTaskCreateInput,
-  type ScheduledTaskUpdateInput,
-} from './schedule/scheduled-task-manager';
+import { ScheduledTaskManager } from './schedule/scheduled-task-manager';
 import { createScheduledTaskStore } from './schedule/scheduled-task-store';
 import {
   buildScheduledTaskFallbackTitle,
@@ -73,16 +53,17 @@ import {
   log,
   logWarn,
   logError,
-  getLogFilePath,
-  getLogsDirectory,
-  getAllLogFiles,
   closeLogFile,
   setDevLogsEnabled,
-  isDevLogsEnabled,
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
-import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
-import { collectEnvironmentDoctorReport } from './runtime/environment-doctor';
+import { registerConfigHandlers } from './ipc/config-handlers';
+import { registerMcpHandlers } from './ipc/mcp-handlers';
+import { registerSkillsHandlers } from './ipc/skills-handlers';
+import { registerSandboxHandlers } from './ipc/sandbox-handlers';
+import { registerLogHandlers } from './ipc/log-handlers';
+import { registerRemoteHandlers } from './ipc/remote-handlers';
+import { registerScheduleHandlers } from './ipc/schedule-handlers';
 
 // Current working directory (persisted between sessions)
 let currentWorkingDir: string | null = null;
@@ -1382,463 +1363,16 @@ ipcMain.handle('dialog.selectFiles', async () => {
   return result.filePaths;
 });
 
-// Config IPC handlers
-ipcMain.handle('config.get', () => {
-  try {
-    return configStore.getAll();
-  } catch (error) {
-    logError('[Config] Error getting config:', error);
-    return {};
-  }
+registerConfigHandlers({
+  getSessionManager: () => sessionManager,
+  sendToRenderer,
 });
-
-ipcMain.handle('config.getPresets', () => {
-  try {
-    return getPiAiModelPresets();
-  } catch (error) {
-    logError('[Config] Error getting presets:', error);
-    return [];
-  }
-});
-
-const buildAgentRuntimeSignature = (config: AppConfig): string =>
-  JSON.stringify({
-    provider: config.provider,
-    apiKey: config.apiKey,
-    baseUrl: config.baseUrl,
-    customProtocol: config.customProtocol,
-    model: config.model,
-    enableThinking: config.enableThinking,
-  });
-
-const syncConfigAfterMutation = async (previousConfig: AppConfig) => {
-  // Mark as configured if any config set has usable credentials
-  configStore.set('isConfigured', configStore.hasAnyUsableCredentials());
-
-  // Apply to environment
-  configStore.applyToEnv();
-
-  const updatedConfig = configStore.getAll();
-  const shouldReloadRunner =
-    buildAgentRuntimeSignature(previousConfig) !== buildAgentRuntimeSignature(updatedConfig);
-  const shouldReloadSandbox = previousConfig.sandboxEnabled !== updatedConfig.sandboxEnabled;
-
-  if (sessionManager) {
-    if (shouldReloadRunner) {
-      sessionManager.reloadConfig();
-    }
-    if (shouldReloadSandbox) {
-      await sessionManager
-        .reloadSandbox()
-        .catch((err) => logError('[Config] Sandbox reload failed:', err));
-    }
-    if (shouldReloadRunner || shouldReloadSandbox) {
-      log(
-        '[Config] Session manager config synced:',
-        JSON.stringify({ runnerReloaded: shouldReloadRunner, sandboxReloaded: shouldReloadSandbox })
-      );
-    }
-  }
-
-  // Notify renderer of config update
-  const isConfigured = configStore.isConfigured();
-  sendToRenderer({
-    type: 'config.status',
-    payload: {
-      isConfigured,
-      config: updatedConfig,
-    },
-  });
-  log('[Config] Notified renderer of config update, isConfigured:', isConfigured);
-  return updatedConfig;
-};
-
-ipcMain.handle('config.save', async (_event, newConfig: Partial<AppConfig>) => {
-  log('[Config] Saving config:', { ...newConfig, apiKey: newConfig.apiKey ? '***' : '' });
-
-  const previousConfig = configStore.getAll();
-  // Update config
-  configStore.update(newConfig);
-  const updatedConfig = await syncConfigAfterMutation(previousConfig);
-
-  return { success: true, config: updatedConfig };
-});
-
-ipcMain.handle('config.createSet', async (_event, payload: CreateConfigSetPayload) => {
-  log('[Config] Creating config set:', payload);
-  const previousConfig = configStore.getAll();
-  configStore.createSet(payload);
-  const updatedConfig = await syncConfigAfterMutation(previousConfig);
-  return { success: true, config: updatedConfig };
-});
-
-ipcMain.handle('config.renameSet', async (_event, payload: { id: string; name: string }) => {
-  log('[Config] Renaming config set:', payload);
-  const previousConfig = configStore.getAll();
-  configStore.renameSet(payload);
-  const updatedConfig = await syncConfigAfterMutation(previousConfig);
-  return { success: true, config: updatedConfig };
-});
-
-ipcMain.handle('config.deleteSet', async (_event, payload: { id: string }) => {
-  log('[Config] Deleting config set:', payload);
-  const previousConfig = configStore.getAll();
-  configStore.deleteSet(payload);
-  const updatedConfig = await syncConfigAfterMutation(previousConfig);
-  return { success: true, config: updatedConfig };
-});
-
-ipcMain.handle('config.switchSet', async (_event, payload: { id: string }) => {
-  log('[Config] Switching config set:', payload);
-  const previousConfig = configStore.getAll();
-  configStore.switchSet(payload);
-  const updatedConfig = await syncConfigAfterMutation(previousConfig);
-  return { success: true, config: updatedConfig };
-});
-
-ipcMain.handle('config.isConfigured', () => {
-  try {
-    return configStore.isConfigured();
-  } catch (error) {
-    logError('[Config] Error checking configured status:', error);
-    return false;
-  }
-});
-
-ipcMain.handle('config.test', async (_event, payload: ApiTestInput): Promise<ApiTestResult> => {
-  try {
-    return await runConfigApiTest(payload, configStore.getAll());
-  } catch (error) {
-    logError('[Config] API test failed:', error);
-    return {
-      ok: false,
-      errorType: 'unknown',
-      details: error instanceof Error ? error.message : String(error),
-    };
-  }
-});
-
-ipcMain.handle(
-  'config.listModels',
-  async (
-    _event,
-    payload: { provider: AppConfig['provider']; apiKey: string; baseUrl?: string }
-  ): Promise<ProviderModelInfo[]> => {
-    if (payload.provider !== 'ollama') {
-      return [];
-    }
-    return listOllamaModels(payload);
-  }
-);
-
-ipcMain.handle('config.diagnose', async (_event, payload: DiagnosticInput) => {
-  try {
-    const { runDiagnostics } = await import('./config/api-diagnostics');
-    return await runDiagnostics(payload);
-  } catch (error) {
-    logError('[Config] Error running diagnostics:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('config.discover-local', async (_event, payload?: { baseUrl?: string }) => {
-  try {
-    const { discoverLocalOllama } = await import('./config/api-diagnostics');
-    return await discoverLocalOllama(payload);
-  } catch (error) {
-    logError('[Config] Error discovering local services:', error);
-    return [];
-  }
-});
-
-// MCP Server IPC handlers
-ipcMain.handle('mcp.getServers', () => {
-  try {
-    return mcpConfigStore.getServers();
-  } catch (error) {
-    logError('[MCP] Error getting servers:', error);
-    return [];
-  }
-});
-
-ipcMain.handle('mcp.getServer', (_event, serverId: string) => {
-  try {
-    return mcpConfigStore.getServer(serverId);
-  } catch (error) {
-    logError('[MCP] Error getting server:', error);
-    return null;
-  }
-});
-
-ipcMain.handle('mcp.saveServer', async (_event, config: MCPServerConfig) => {
-  mcpConfigStore.saveServer(config);
-  // Update only this specific server, not all servers
-  if (sessionManager) {
-    const mcpManager = sessionManager.getMCPManager();
-    try {
-      await mcpManager.updateServer(config);
-      sessionManager.invalidateMcpServersCache();
-      log(`[MCP] Server ${config.name} updated successfully`);
-    } catch (err) {
-      logError('[MCP] Failed to update server:', err);
-      // Roll back: save the config with enabled=false so a broken connector
-      // is not retried on next app startup
-      if (config.enabled) {
-        mcpConfigStore.saveServer({ ...config, enabled: false });
-      }
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      return { success: false, error: errorMessage };
-    }
-  }
-  return { success: true };
-});
-
-ipcMain.handle('mcp.deleteServer', async (_event, serverId: string) => {
-  mcpConfigStore.deleteServer(serverId);
-  // Remove and disconnect only this specific server
-  if (sessionManager) {
-    const mcpManager = sessionManager.getMCPManager();
-    try {
-      await mcpManager.removeServer(serverId);
-      sessionManager.invalidateMcpServersCache();
-      log(`[MCP] Server ${serverId} removed successfully`);
-    } catch (err) {
-      logError('[MCP] Failed to remove server:', err);
-    }
-  }
-  return { success: true };
-});
-
-ipcMain.handle('mcp.getTools', () => {
-  try {
-    if (!sessionManager) {
-      return [];
-    }
-    const mcpManager = sessionManager.getMCPManager();
-    return mcpManager.getTools();
-  } catch (error) {
-    logError('[MCP] Error getting tools:', error);
-    return [];
-  }
-});
-
-ipcMain.handle('mcp.getServerStatus', () => {
-  try {
-    if (!sessionManager) {
-      return [];
-    }
-    const mcpManager = sessionManager.getMCPManager();
-    return mcpManager.getServerStatus();
-  } catch (error) {
-    logError('[MCP] Error getting server status:', error);
-    return [];
-  }
-});
-
-ipcMain.handle('mcp.getPresets', () => {
-  try {
-    return mcpConfigStore.getPresets();
-  } catch (error) {
-    logError('[MCP] Error getting presets:', error);
-    return {};
-  }
-});
-
-// Skills API handlers
-ipcMain.handle('skills.getAll', async () => {
-  try {
-    if (!skillsManager) {
-      throw new Error('Skills manager is still starting');
-    }
-    return await skillsManager.listSkills();
-  } catch (error) {
-    logError('[Skills] Error getting skills:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('skills.install', async (_event, skillPath: string) => {
-  try {
-    if (!skillsManager) {
-      throw new Error('SkillsManager not initialized');
-    }
-    const skill = await skillsManager.installSkill(skillPath);
-    sessionManager?.invalidateSkillsSetup();
-    return { success: true, skill };
-  } catch (error) {
-    logError('[Skills] Error installing skill:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('skills.delete', async (_event, skillId: string) => {
-  try {
-    if (!skillsManager) {
-      throw new Error('SkillsManager not initialized');
-    }
-    await skillsManager.uninstallSkill(skillId);
-    sessionManager?.invalidateSkillsSetup();
-    return { success: true };
-  } catch (error) {
-    logError('[Skills] Error deleting skill:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('skills.setEnabled', async (_event, skillId: string, enabled: boolean) => {
-  try {
-    if (!skillsManager) {
-      throw new Error('SkillsManager not initialized');
-    }
-    skillsManager.setSkillEnabled(skillId, enabled);
-    sessionManager?.invalidateSkillsSetup();
-    return { success: true };
-  } catch (error) {
-    logError('[Skills] Error toggling skill:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('skills.validate', async (_event, skillPath: string) => {
-  try {
-    if (!skillsManager) {
-      return { valid: false, errors: ['SkillsManager not initialized'] };
-    }
-    const result = await skillsManager.validateSkillFolder(skillPath);
-    return result;
-  } catch (error) {
-    logError('[Skills] Error validating skill:', error);
-    return { valid: false, errors: ['Validation failed'] };
-  }
-});
-
-ipcMain.handle('skills.getStoragePath', async () => {
-  try {
-    if (!skillsManager) {
-      return null;
-    }
-    return skillsManager.getGlobalSkillsPath();
-  } catch (error) {
-    logError('[Skills] Error getting storage path:', error);
-    return null;
-  }
-});
-
-ipcMain.handle('skills.setStoragePath', async (_event, targetPath: string, migrate = true) => {
-  if (!skillsManager) {
-    throw new Error('SkillsManager not initialized');
-  }
-  const result = await skillsManager.setGlobalSkillsPath(targetPath, migrate !== false);
-  sendToRenderer({
-    type: 'config.status',
-    payload: {
-      isConfigured: configStore.isConfigured(),
-      config: configStore.getAll(),
-    },
-  });
-  return { success: true, ...result };
-});
-
-ipcMain.handle('skills.openStoragePath', async () => {
-  if (!skillsManager) {
-    throw new Error('SkillsManager not initialized');
-  }
-  const storagePath = skillsManager.getGlobalSkillsPath();
-  const openResult = await shell.openPath(storagePath);
-  if (openResult) {
-    return { success: false, path: storagePath, error: openResult };
-  }
-  return { success: true, path: storagePath };
-});
-
-ipcMain.handle('plugins.listCatalog', async (_event, options?: { installableOnly?: boolean }) => {
-  try {
-    if (!pluginRuntimeService) {
-      throw new Error('PluginRuntimeService not initialized');
-    }
-    return await pluginRuntimeService.listCatalog(options);
-  } catch (error) {
-    logError('[Plugins] Error listing catalog:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('plugins.listInstalled', async () => {
-  try {
-    if (!pluginRuntimeService) {
-      throw new Error('PluginRuntimeService not initialized');
-    }
-    return pluginRuntimeService.listInstalled();
-  } catch (error) {
-    logError('[Plugins] Error listing installed plugins:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('plugins.install', async (_event, pluginName: string) => {
-  try {
-    if (!pluginRuntimeService) {
-      throw new Error('PluginRuntimeService not initialized');
-    }
-    const result = await pluginRuntimeService.install(pluginName);
-    sessionManager?.invalidateSkillsSetup();
-    return result;
-  } catch (error) {
-    logError('[Plugins] Error installing plugin:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('plugins.setEnabled', async (_event, pluginId: string, enabled: boolean) => {
-  try {
-    if (!pluginRuntimeService) {
-      throw new Error('PluginRuntimeService not initialized');
-    }
-    const result = await pluginRuntimeService.setEnabled(pluginId, enabled);
-    sessionManager?.invalidateSkillsSetup();
-    return result;
-  } catch (error) {
-    logError('[Plugins] Error toggling plugin:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle(
-  'plugins.setComponentEnabled',
-  async (
-    _event,
-    pluginId: string,
-    component: 'skills' | 'commands' | 'agents' | 'hooks' | 'mcp',
-    enabled: boolean
-  ) => {
-    try {
-      if (!pluginRuntimeService) {
-        throw new Error('PluginRuntimeService not initialized');
-      }
-      const result = await pluginRuntimeService.setComponentEnabled(pluginId, component, enabled);
-      if (component === 'skills') {
-        sessionManager?.invalidateSkillsSetup();
-      }
-      return result;
-    } catch (error) {
-      logError('[Plugins] Error toggling plugin component:', error);
-      throw error;
-    }
-  }
-);
-
-ipcMain.handle('plugins.uninstall', async (_event, pluginId: string) => {
-  try {
-    if (!pluginRuntimeService) {
-      throw new Error('PluginRuntimeService not initialized');
-    }
-    const result = await pluginRuntimeService.uninstall(pluginId);
-    sessionManager?.invalidateSkillsSetup();
-    return result;
-  } catch (error) {
-    logError('[Plugins] Error uninstalling plugin:', error);
-    throw error;
-  }
+registerMcpHandlers({ getSessionManager: () => sessionManager });
+registerSkillsHandlers({
+  getSkillsManager: () => skillsManager,
+  getPluginRuntimeService: () => pluginRuntimeService,
+  getSessionManager: () => sessionManager,
+  sendToRenderer,
 });
 
 // Window control IPC handlers
@@ -1870,678 +1404,19 @@ ipcMain.on('window.close', () => {
   }
 });
 
-// Sandbox IPC handlers
-ipcMain.handle('sandbox.getStatus', async () => {
-  try {
-    const adapter = getSandboxAdapter();
-    const platform = process.platform;
-
-    if (platform === 'win32') {
-      const wslStatus = await WSLBridge.checkWSLStatus();
-      return {
-        platform: 'win32',
-        mode: adapter.initialized ? adapter.mode : 'none',
-        initialized: adapter.initialized,
-        wsl: wslStatus,
-        lima: null,
-      };
-    } else if (platform === 'darwin') {
-      const limaStatus = await LimaBridge.checkLimaStatus();
-      return {
-        platform: 'darwin',
-        mode: adapter.initialized ? adapter.mode : 'native',
-        initialized: adapter.initialized,
-        wsl: null,
-        lima: limaStatus,
-      };
-    } else {
-      return {
-        platform,
-        mode: adapter.initialized ? adapter.mode : 'native',
-        initialized: adapter.initialized,
-        wsl: null,
-        lima: null,
-      };
-    }
-  } catch (error) {
-    logError('[Sandbox] Error getting status:', error);
-    return {
-      platform: process.platform,
-      mode: 'none',
-      initialized: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
+registerSandboxHandlers({ sendToRenderer });
+registerLogHandlers({
+  getMainWindow: () => mainWindow,
+  getCurrentWorkingDir: () => currentWorkingDir,
+  sanitizeDiagnosticBaseUrl,
+  getSessionManager: () => sessionManager,
 });
-
-// WSL IPC handlers (Windows)
-ipcMain.handle('sandbox.checkWSL', async () => {
-  try {
-    return await WSLBridge.checkWSLStatus();
-  } catch (error) {
-    logError('[Sandbox] Error checking WSL:', error);
-    return { available: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
+registerRemoteHandlers();
+registerScheduleHandlers({
+  getScheduledTaskManager: () => scheduledTaskManager,
+  getWorkspacePathUnsupportedReason,
+  resolveScheduledTaskTitle,
 });
-
-ipcMain.handle('sandbox.installNodeInWSL', async (_event, distro: string) => {
-  try {
-    return await WSLBridge.installNodeInWSL(distro);
-  } catch (error) {
-    logError('[Sandbox] Error installing Node.js:', error);
-    return false;
-  }
-});
-
-ipcMain.handle('sandbox.installPythonInWSL', async (_event, distro: string) => {
-  try {
-    return await WSLBridge.installPythonInWSL(distro);
-  } catch (error) {
-    logError('[Sandbox] Error installing Python:', error);
-    return false;
-  }
-});
-
-// Lima IPC handlers (macOS)
-ipcMain.handle('sandbox.checkLima', async () => {
-  try {
-    return await LimaBridge.checkLimaStatus();
-  } catch (error) {
-    logError('[Sandbox] Error checking Lima:', error);
-    return { available: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('sandbox.createLimaInstance', async () => {
-  try {
-    return await LimaBridge.createLimaInstance();
-  } catch (error) {
-    logError('[Sandbox] Error creating Lima instance:', error);
-    return false;
-  }
-});
-
-ipcMain.handle('sandbox.startLimaInstance', async () => {
-  try {
-    return await LimaBridge.startLimaInstance();
-  } catch (error) {
-    logError('[Sandbox] Error starting Lima instance:', error);
-    return false;
-  }
-});
-
-ipcMain.handle('sandbox.stopLimaInstance', async () => {
-  try {
-    return await LimaBridge.stopLimaInstance();
-  } catch (error) {
-    logError('[Sandbox] Error stopping Lima instance:', error);
-    return false;
-  }
-});
-
-ipcMain.handle('sandbox.installNodeInLima', async () => {
-  try {
-    return await LimaBridge.installNodeInLima();
-  } catch (error) {
-    logError('[Sandbox] Error installing Node.js in Lima:', error);
-    return false;
-  }
-});
-
-ipcMain.handle('sandbox.installPythonInLima', async () => {
-  try {
-    return await LimaBridge.installPythonInLima();
-  } catch (error) {
-    logError('[Sandbox] Error installing Python in Lima:', error);
-    return false;
-  }
-});
-
-// Logs IPC handlers
-ipcMain.handle('logs.getPath', () => {
-  try {
-    return getLogFilePath();
-  } catch (error) {
-    logError('[Logs] Error getting log path:', error);
-    return null;
-  }
-});
-
-ipcMain.handle('logs.getDirectory', () => {
-  try {
-    return getLogsDirectory();
-  } catch (error) {
-    logError('[Logs] Error getting logs directory:', error);
-    return null;
-  }
-});
-
-ipcMain.handle('logs.getAll', () => {
-  try {
-    return getAllLogFiles();
-  } catch (error) {
-    logError('[Logs] Error getting all log files:', error);
-    return [];
-  }
-});
-
-ipcMain.handle('diagnostics.environmentDoctor', () => {
-  try {
-    return { success: true, report: collectEnvironmentDoctorReport() };
-  } catch (error) {
-    logError('[Diagnostics] Error collecting environment doctor report:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('logs.export', async () => {
-  try {
-    const logFiles = getAllLogFiles();
-    const diagnosticsSummary = buildDiagnosticsSummary({
-      app: {
-        version: app.getVersion(),
-        isPackaged: app.isPackaged,
-        platform: process.platform,
-        arch: process.arch,
-        nodeVersion: process.version,
-        electronVersion: process.versions.electron,
-        chromeVersion: process.versions.chrome,
-      },
-      runtime: {
-        currentWorkingDir,
-        logsDirectory: getLogsDirectory(),
-        logFileCount: logFiles.length,
-        totalLogSizeBytes: logFiles.reduce((total, file) => total + file.size, 0),
-        devLogsEnabled: isDevLogsEnabled(),
-      },
-      config: {
-        provider: configStore.get('provider'),
-        model: configStore.get('model'),
-        baseUrl: sanitizeDiagnosticBaseUrl(configStore.get('baseUrl') || undefined),
-        customProtocol: configStore.get('customProtocol') || null,
-        sandboxEnabled: !!configStore.get('sandboxEnabled'),
-        thinkingEnabled: !!configStore.get('enableThinking'),
-        apiKeyConfigured: !!configStore.get('apiKey'),
-        claudeCodePathConfigured: !!configStore.get('claudeCodePath'),
-        defaultWorkdir: configStore.get('defaultWorkdir') || null,
-        globalSkillsPathConfigured: !!configStore.get('globalSkillsPath'),
-      },
-      sandbox: {
-        mode: getSandboxAdapter().mode,
-        initialized: getSandboxAdapter().initialized,
-      },
-      environmentDoctor: collectEnvironmentDoctorReport(),
-      sessions: sessionManager ? sessionManager.listSessions() : [],
-      logFiles,
-      deps: {
-        getMessages: (sessionId: string) =>
-          sessionManager ? sessionManager.getMessages(sessionId) : [],
-        getTraceSteps: (sessionId: string) =>
-          sessionManager ? sessionManager.getTraceSteps(sessionId) : [],
-      },
-    });
-
-    // Show save dialog
-    const result = await dialog.showSaveDialog(mainWindow!, {
-      title: 'Export Logs',
-      defaultPath: `opencowork-logs-${new Date().toISOString().split('T')[0]}.zip`,
-      filters: [
-        { name: 'ZIP Archive', extensions: ['zip'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-    });
-
-    if (result.canceled || !result.filePath) {
-      return { success: false, error: 'User cancelled' };
-    }
-
-    // Dynamic import archiver
-    const archiver = await import('archiver');
-    const output = fs.createWriteStream(result.filePath);
-    const archive = archiver.default('zip', { zlib: { level: 9 } });
-
-    return new Promise((resolve) => {
-      let settled = false;
-      const settle = (value: {
-        success: boolean;
-        path?: string;
-        size?: number;
-        error?: string;
-      }) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        resolve(value);
-      };
-
-      output.on('close', () => {
-        log('[Logs] Exported logs to:', result.filePath);
-        settle({
-          success: true,
-          path: result.filePath,
-          size: archive.pointer(),
-        });
-      });
-
-      output.on('error', (err: Error) => {
-        logError('[Logs] Error writing exported archive:', err);
-        settle({ success: false, error: err.message });
-      });
-
-      archive.on('error', (err: Error) => {
-        logError('[Logs] Error creating archive:', err);
-        settle({ success: false, error: err.message });
-      });
-
-      archive.pipe(output);
-
-      // Add all log files
-      for (const logFile of logFiles) {
-        archive.file(logFile.path, { name: logFile.name });
-      }
-
-      // Add system info
-      const systemInfo = {
-        platform: process.platform,
-        arch: process.arch,
-        nodeVersion: process.version,
-        electronVersion: process.versions.electron,
-        appVersion: app.getVersion(),
-        exportDate: new Date().toISOString(),
-        logFiles: logFiles.map((f) => ({
-          name: f.name,
-          size: f.size,
-          modified: f.mtime,
-        })),
-      };
-      archive.append(JSON.stringify(systemInfo, null, 2), { name: 'system-info.json' });
-      archive.append(JSON.stringify(diagnosticsSummary, null, 2), {
-        name: 'diagnostics-summary.json',
-      });
-      archive.append(
-        [
-          'Open Cowork diagnostic bundle',
-          `Exported at: ${diagnosticsSummary.exportedAt}`,
-          '',
-          'Included files:',
-          '- Application log files (*.log)',
-          '- system-info.json',
-          '- diagnostics-summary.json',
-          '',
-          'diagnostics-summary.json contains a redacted runtime/config snapshot,',
-          'plus metadata-only session summaries and recent error traces to speed up debugging.',
-        ].join('\n'),
-        { name: 'README.txt' }
-      );
-
-      archive.finalize();
-    });
-  } catch (error) {
-    logError('[Logs] Error exporting logs:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('logs.open', async () => {
-  try {
-    const logsDir = getLogsDirectory();
-    await shell.openPath(logsDir);
-    return { success: true };
-  } catch (error) {
-    logError('[Logs] Error opening logs directory:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('logs.clear', async () => {
-  try {
-    const logFiles = getAllLogFiles();
-
-    // Close current log file
-    closeLogFile();
-
-    // Delete all log files
-    for (const logFile of logFiles) {
-      try {
-        fs.unlinkSync(logFile.path);
-        log('[Logs] Deleted log file:', logFile.name);
-      } catch (err) {
-        logError('[Logs] Failed to delete log file:', logFile.name, err);
-      }
-    }
-
-    // Log will automatically reinitialize on next log call
-    log('[Logs] Log files cleared and reinitialized');
-
-    return { success: true, deletedCount: logFiles.length };
-  } catch (error) {
-    logError('[Logs] Error clearing logs:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('logs.setEnabled', async (_event, enabled: boolean) => {
-  try {
-    setDevLogsEnabled(enabled);
-    configStore.set('enableDevLogs', enabled);
-    log('[Logs] Developer logs', enabled ? 'enabled' : 'disabled');
-    return { success: true, enabled };
-  } catch (error) {
-    logError('[Logs] Error setting dev logs enabled:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('logs.isEnabled', () => {
-  try {
-    return { success: true, enabled: isDevLogsEnabled() };
-  } catch (error) {
-    logError('[Logs] Error getting dev logs enabled:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-// ============================================================================
-// 远程控制 IPC 处理
-// ============================================================================
-
-ipcMain.handle('remote.getConfig', () => {
-  try {
-    return remoteConfigStore.getAll();
-  } catch (error) {
-    logError('[Remote] Error getting config:', error);
-    return null;
-  }
-});
-
-ipcMain.handle('remote.getStatus', () => {
-  try {
-    return remoteManager.getStatus();
-  } catch (error) {
-    logError('[Remote] Error getting status:', error);
-    return { running: false, channels: [], activeSessions: 0, pendingPairings: 0 };
-  }
-});
-
-ipcMain.handle('remote.setEnabled', async (_event, enabled: boolean) => {
-  try {
-    remoteConfigStore.setEnabled(enabled);
-
-    if (enabled) {
-      await remoteManager.start();
-    } else {
-      await remoteManager.stop();
-    }
-
-    return { success: true };
-  } catch (error) {
-    logError('[Remote] Error setting enabled:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('remote.updateGatewayConfig', async (_event, config: Partial<GatewayConfig>) => {
-  try {
-    await remoteManager.updateGatewayConfig(config);
-    return { success: true };
-  } catch (error) {
-    logError('[Remote] Error updating gateway config:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('remote.updateFeishuConfig', async (_event, config: FeishuChannelConfig) => {
-  try {
-    await remoteManager.updateFeishuConfig(config);
-    return { success: true };
-  } catch (error) {
-    logError('[Remote] Error updating Feishu config:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('remote.getPairedUsers', () => {
-  try {
-    return remoteManager.getPairedUsers();
-  } catch (error) {
-    logError('[Remote] Error getting paired users:', error);
-    return [];
-  }
-});
-
-ipcMain.handle('remote.getPendingPairings', () => {
-  try {
-    return remoteManager.getPendingPairings();
-  } catch (error) {
-    logError('[Remote] Error getting pending pairings:', error);
-    return [];
-  }
-});
-
-ipcMain.handle('remote.approvePairing', (_event, channelType: ChannelType, userId: string) => {
-  try {
-    const success = remoteManager.approvePairing(channelType, userId);
-    return { success };
-  } catch (error) {
-    logError('[Remote] Error approving pairing:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('remote.revokePairing', (_event, channelType: ChannelType, userId: string) => {
-  try {
-    const success = remoteManager.revokePairing(channelType, userId);
-    return { success };
-  } catch (error) {
-    logError('[Remote] Error revoking pairing:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('remote.rejectPairing', (_event, channelType: ChannelType, userId: string) => {
-  try {
-    const success = remoteManager.rejectPairing(channelType, userId);
-    return { success };
-  } catch (error) {
-    logError('[Remote] Error rejecting pairing:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('remote.getRemoteSessions', () => {
-  try {
-    return remoteManager.getRemoteSessions();
-  } catch (error) {
-    logError('[Remote] Error getting remote sessions:', error);
-    return [];
-  }
-});
-
-ipcMain.handle('remote.clearRemoteSession', (_event, sessionId: string) => {
-  try {
-    const success = remoteManager.clearRemoteSession(sessionId);
-    return { success };
-  } catch (error) {
-    logError('[Remote] Error clearing remote session:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('remote.getTunnelStatus', () => {
-  try {
-    return remoteManager.getTunnelStatus();
-  } catch (error) {
-    logError('[Remote] Error getting tunnel status:', error);
-    return { connected: false, url: null, provider: 'none' };
-  }
-});
-
-ipcMain.handle('remote.getWebhookUrl', () => {
-  try {
-    return remoteManager.getFeishuWebhookUrl();
-  } catch (error) {
-    logError('[Remote] Error getting webhook URL:', error);
-    return null;
-  }
-});
-
-ipcMain.handle('remote.restart', async () => {
-  try {
-    await remoteManager.restart();
-    return { success: true };
-  } catch (error) {
-    logError('[Remote] Error restarting:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('schedule.list', () => {
-  try {
-    if (!scheduledTaskManager) return [];
-    return scheduledTaskManager.list();
-  } catch (error) {
-    logError('[Schedule] Error listing tasks:', error);
-    return [];
-  }
-});
-
-ipcMain.handle('schedule.create', async (_event, payload: ScheduledTaskCreateInput) => {
-  if (!scheduledTaskManager) {
-    throw new Error('Scheduled task manager not initialized');
-  }
-  const unsupportedReason = getWorkspacePathUnsupportedReason(payload.cwd);
-  if (unsupportedReason) {
-    throw new Error(unsupportedReason);
-  }
-  const normalizedPrompt = payload.prompt.trim();
-  const title = await resolveScheduledTaskTitle(normalizedPrompt, payload.cwd, payload.title);
-  return scheduledTaskManager.create({
-    ...payload,
-    prompt: normalizedPrompt,
-    title,
-  });
-});
-
-ipcMain.handle('schedule.update', async (_event, id: string, updates: ScheduledTaskUpdateInput) => {
-  if (!scheduledTaskManager) {
-    throw new Error('Scheduled task manager not initialized');
-  }
-  const existing = scheduledTaskManager.get(id);
-  if (!existing) return null;
-  const nextCwd = updates.cwd ?? existing.cwd;
-  const unsupportedReason = getWorkspacePathUnsupportedReason(nextCwd);
-  if (unsupportedReason) {
-    throw new Error(unsupportedReason);
-  }
-  const normalizedPrompt = updates.prompt === undefined ? existing.prompt : updates.prompt.trim();
-  const normalizedUpdates: ScheduledTaskUpdateInput = {
-    ...updates,
-    prompt: normalizedPrompt,
-  };
-
-  if (updates.prompt !== undefined) {
-    normalizedUpdates.title = await resolveScheduledTaskTitle(
-      normalizedPrompt,
-      updates.cwd ?? existing.cwd,
-      updates.title ?? existing.title
-    );
-  } else if (updates.title !== undefined) {
-    normalizedUpdates.title = buildScheduledTaskTitle(updates.title);
-  }
-
-  return scheduledTaskManager.update(id, normalizedUpdates);
-});
-
-ipcMain.handle('schedule.delete', (_event, id: string) => {
-  if (!scheduledTaskManager) {
-    throw new Error('Scheduled task manager not initialized');
-  }
-  return { success: scheduledTaskManager.delete(id) };
-});
-
-ipcMain.handle('schedule.toggle', (_event, id: string, enabled: boolean) => {
-  if (!scheduledTaskManager) {
-    throw new Error('Scheduled task manager not initialized');
-  }
-  return scheduledTaskManager.toggle(id, enabled);
-});
-
-ipcMain.handle('schedule.runNow', async (_event, id: string) => {
-  if (!scheduledTaskManager) {
-    throw new Error('Scheduled task manager not initialized');
-  }
-  return scheduledTaskManager.runNow(id);
-});
-
-ipcMain.handle('logs.write', (_event, level: 'info' | 'warn' | 'error', args: unknown[]) => {
-  try {
-    if (level === 'warn') {
-      logWarn(...args);
-    } else if (level === 'error') {
-      logError(...args);
-    } else {
-      log(...args);
-    }
-    return { success: true };
-  } catch (error) {
-    console.error('[Logs] Error writing log:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-ipcMain.handle('sandbox.retryLimaSetup', async () => {
-  if (process.platform !== 'darwin') {
-    return { success: false, error: 'Lima is only available on macOS' };
-  }
-
-  try {
-    const bootstrap = getSandboxBootstrap();
-    bootstrap.setProgressCallback((progress) => {
-      sendToRenderer({
-        type: 'sandbox.progress',
-        payload: progress,
-      });
-    });
-
-    try {
-      await LimaBridge.stopLimaInstance();
-    } catch (error) {
-      logError('[Sandbox] Error stopping Lima before retry:', error);
-    }
-
-    bootstrap.reset();
-    const result = await bootstrap.bootstrap();
-    const success = !result.error;
-    return { success, result, error: result.error };
-  } catch (error) {
-    logError('[Sandbox] Error retrying Lima setup:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
-// Generic retry setup for both WSL and Lima
-ipcMain.handle('sandbox.retrySetup', async () => {
-  try {
-    const bootstrap = getSandboxBootstrap();
-    bootstrap.setProgressCallback((progress) => {
-      sendToRenderer({
-        type: 'sandbox.progress',
-        payload: progress,
-      });
-    });
-
-    // Reset and re-run bootstrap
-    bootstrap.reset();
-    const result = await bootstrap.bootstrap();
-    const success = !result.error;
-    return { success, result, error: result.error };
-  } catch (error) {
-    logError('[Sandbox] Error retrying setup:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-});
-
 async function handleClientEvent(event: ClientEvent): Promise<unknown> {
   // Check if configured before starting sessions
   if (event.type === 'session.start' && !configStore.hasUsableCredentialsForActiveSet()) {
@@ -2579,15 +1454,20 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         event.payload.prompt,
         event.payload.cwd,
         event.payload.allowedTools,
-        event.payload.content
+        event.payload.content,
+        event.payload.contextConfig
       );
 
     case 'session.continue':
       return sm.continueSession(
         event.payload.sessionId,
         event.payload.prompt,
-        event.payload.content
+        event.payload.content,
+        event.payload.contextConfig
       );
+
+    case 'session.compact':
+      return sm.compactSession(event.payload.sessionId);
 
     case 'session.stop':
       return sm.stopSession(event.payload.sessionId);
@@ -2658,25 +1538,46 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
     }
 
     case 'settings.update':
-      if (
-        event.payload.theme === 'dark' ||
-        event.payload.theme === 'light' ||
-        event.payload.theme === 'system'
-      ) {
-        const nextTheme = event.payload.theme as AppTheme;
-        configStore.update({ theme: nextTheme });
-        applyNativeThemePreference(nextTheme);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          const effectiveTheme = resolveEffectiveTheme(nextTheme);
-          mainWindow.setBackgroundColor(effectiveTheme === 'dark' ? DARK_BG : LIGHT_BG);
+      {
+        const configUpdates: Partial<AppConfig> = {};
+        if (
+          event.payload.theme === 'dark' ||
+          event.payload.theme === 'light' ||
+          event.payload.theme === 'system'
+        ) {
+          const nextTheme = event.payload.theme as AppTheme;
+          configUpdates.theme = nextTheme;
+          applyNativeThemePreference(nextTheme);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            const effectiveTheme = resolveEffectiveTheme(nextTheme);
+            mainWindow.setBackgroundColor(effectiveTheme === 'dark' ? DARK_BG : LIGHT_BG);
+          }
         }
-        sendToRenderer({
-          type: 'config.status',
-          payload: {
-            isConfigured: configStore.isConfigured(),
-            config: configStore.getAll(),
-          },
-        });
+        if (
+          event.payload.memoryStrategy === 'auto' ||
+          event.payload.memoryStrategy === 'manual' ||
+          event.payload.memoryStrategy === 'rolling'
+        ) {
+          configUpdates.memoryStrategy = event.payload.memoryStrategy;
+        }
+        if (
+          typeof event.payload.maxContextTokens === 'number' &&
+          Number.isFinite(event.payload.maxContextTokens)
+        ) {
+          configUpdates.maxContextTokens = Math.max(8192, Math.floor(event.payload.maxContextTokens));
+        }
+        if (Object.keys(configUpdates).length > 0) {
+          configStore.update(configUpdates);
+        }
+        if (Object.keys(configUpdates).length > 0 || event.payload.theme !== undefined) {
+          sendToRenderer({
+            type: 'config.status',
+            payload: {
+              isConfigured: configStore.isConfigured(),
+              config: configStore.getAll(),
+            },
+          });
+        }
       }
       return null;
 

@@ -71,6 +71,12 @@ describe('conversation-turns', () => {
   it('folds process blocks across the whole assistant turn instead of per message', () => {
     const assistantMessages = [
       makeMessage(
+        'a0',
+        'assistant',
+        [{ type: 'text', text: 'I will inspect the file first.' }],
+        0
+      ),
+      makeMessage(
         'a1',
         'assistant',
         [{ type: 'tool_use', id: 'tool-1', name: 'read_file', input: { path: 'a.ts' } }],
@@ -101,10 +107,12 @@ describe('conversation-turns', () => {
 
     const result = splitAssistantTurnMessages(assistantMessages);
 
-    expect(result.processItems).toHaveLength(3);
+    expect(result.processItems).toHaveLength(5);
     expect(result.processItems.map((item) => item.block.type)).toEqual([
+      'text',
       'tool_use',
       'thinking',
+      'text',
       'tool_result',
     ]);
     expect(
@@ -112,10 +120,80 @@ describe('conversation-turns', () => {
         (item) => item.block.type === 'tool_result' && item.message.id === 'a2'
       )
     ).toBe(false);
+    expect(result.finalMessages).toHaveLength(0);
+  });
+
+  it('keeps running workflow text inside the process instead of final output', () => {
+    const assistantMessages = [
+      makeMessage(
+        'a1',
+        'assistant',
+        [{ type: 'tool_use', id: 'tool-1', name: 'read_file', input: { path: 'a.ts' } }],
+        1
+      ),
+      makeMessage(
+        'a2',
+        'assistant',
+        [{ type: 'text', text: 'I found the file and am checking the call path.' }],
+        2
+      ),
+    ];
+
+    const result = splitAssistantTurnMessages(assistantMessages, { isProcessing: true });
+
+    expect(result.finalMessages).toHaveLength(0);
+    expect(result.processItems.map((item) => item.block.type)).toEqual(['tool_use', 'text']);
+  });
+
+  it('keeps plain running text as final output when there is no workflow process', () => {
+    const assistantMessages = [
+      makeMessage(
+        'a1',
+        'assistant',
+        [{ type: 'text', text: 'Streaming a direct answer.' }],
+        1
+      ),
+    ];
+
+    const result = splitAssistantTurnMessages(assistantMessages, { isProcessing: true });
+
+    expect(result.processItems).toHaveLength(0);
+    expect(result.finalMessages).toHaveLength(1);
+    expect(result.finalMessages[0]).toMatchObject({
+      message: { id: 'a1' },
+      contentBlocks: [{ type: 'text', text: 'Streaming a direct answer.' }],
+    });
+  });
+
+  it('promotes only trailing completed text to final output after process blocks', () => {
+    const assistantMessages = [
+      makeMessage(
+        'a1',
+        'assistant',
+        [{ type: 'text', text: 'I will inspect first.' }],
+        1
+      ),
+      makeMessage(
+        'a2',
+        'assistant',
+        [{ type: 'tool_use', id: 'tool-1', name: 'read_file', input: { path: 'a.ts' } }],
+        2
+      ),
+      makeMessage(
+        'a3',
+        'assistant',
+        [{ type: 'text', text: 'The final answer is ready.' }],
+        3
+      ),
+    ];
+
+    const result = splitAssistantTurnMessages(assistantMessages);
+
+    expect(result.processItems.map((item) => item.block.type)).toEqual(['text', 'tool_use']);
     expect(result.finalMessages).toHaveLength(1);
     expect(result.finalMessages[0]).toMatchObject({
       message: { id: 'a3' },
-      contentBlocks: [{ type: 'text', text: 'done' }],
+      contentBlocks: [{ type: 'text', text: 'The final answer is ready.' }],
     });
   });
 });

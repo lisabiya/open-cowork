@@ -37,6 +37,7 @@ import { API_PROVIDER_PRESETS, PI_AI_CURATED_PRESETS } from '../../shared/api-mo
 export type ProviderType = 'openrouter' | 'anthropic' | 'custom' | 'openai' | 'gemini' | 'ollama';
 export type CustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 export type AppTheme = 'dark' | 'light' | 'system';
+export type MemoryStrategy = 'auto' | 'manual' | 'rolling';
 export type ProviderProfileKey =
   | 'openrouter'
   | 'anthropic'
@@ -112,6 +113,10 @@ export interface AppConfig {
   // UI theme preference
   theme: AppTheme;
 
+  // Context budget behavior
+  memoryStrategy: MemoryStrategy;
+  maxContextTokens: number;
+
   // Sandbox mode (WSL/Lima isolation)
   sandboxEnabled: boolean;
 
@@ -137,6 +142,8 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'globalSkillsPath',
   'enableDevLogs',
   'theme',
+  'memoryStrategy',
+  'maxContextTokens',
   'sandboxEnabled',
   'enableThinking',
   'isConfigured',
@@ -212,6 +219,8 @@ const defaultConfig: AppConfig = {
   globalSkillsPath: '',
   enableDevLogs: false,
   theme: 'light',
+  memoryStrategy: 'auto',
+  maxContextTokens: 180000,
   sandboxEnabled: false,
   enableThinking: false,
   isConfigured: false,
@@ -280,6 +289,7 @@ const PROFILE_KEYS: ProviderProfileKey[] = [
   'custom:gemini',
 ];
 const VALID_THEMES: AppTheme[] = ['dark', 'light', 'system'];
+const VALID_MEMORY_STRATEGIES: MemoryStrategy[] = ['auto', 'manual', 'rolling'];
 
 function isProviderType(value: unknown): value is ProviderType {
   return (
@@ -302,6 +312,10 @@ function isProfileKey(value: unknown): value is ProviderProfileKey {
 
 function isAppTheme(value: unknown): value is AppTheme {
   return typeof value === 'string' && VALID_THEMES.includes(value as AppTheme);
+}
+
+function isMemoryStrategy(value: unknown): value is MemoryStrategy {
+  return typeof value === 'string' && VALID_MEMORY_STRATEGIES.includes(value as MemoryStrategy);
 }
 
 function profileKeyFromProvider(
@@ -846,6 +860,13 @@ export class ConfigStore {
           : defaultConfig.globalSkillsPath,
       enableDevLogs: toBoolean(raw.enableDevLogs, defaultConfig.enableDevLogs),
       theme: isAppTheme(raw.theme) ? raw.theme : defaultConfig.theme,
+      memoryStrategy: isMemoryStrategy(raw.memoryStrategy)
+        ? raw.memoryStrategy
+        : defaultConfig.memoryStrategy,
+      maxContextTokens:
+        typeof raw.maxContextTokens === 'number' && Number.isFinite(raw.maxContextTokens)
+          ? Math.max(8192, Math.floor(raw.maxContextTokens))
+          : defaultConfig.maxContextTokens,
       sandboxEnabled: toBoolean(raw.sandboxEnabled, defaultConfig.sandboxEnabled),
       enableThinking: projected.enableThinking,
       isConfigured: toBoolean(raw.isConfigured, defaultConfig.isConfigured),
@@ -981,6 +1002,15 @@ export class ConfigStore {
           return defaultConfig[key];
         }
         if (key === 'theme' && !isAppTheme(rawValue)) {
+          return defaultConfig[key];
+        }
+        if (key === 'memoryStrategy' && !isMemoryStrategy(rawValue)) {
+          return defaultConfig[key];
+        }
+        if (
+          key === 'maxContextTokens' &&
+          (typeof rawValue !== 'number' || !Number.isFinite(rawValue))
+        ) {
           return defaultConfig[key];
         }
         if (
@@ -1257,6 +1287,10 @@ export class ConfigStore {
       enableDevLogs:
         updates.enableDevLogs !== undefined ? updates.enableDevLogs : current.enableDevLogs,
       theme: updates.theme !== undefined ? updates.theme : current.theme,
+      memoryStrategy:
+        updates.memoryStrategy !== undefined ? updates.memoryStrategy : current.memoryStrategy,
+      maxContextTokens:
+        updates.maxContextTokens !== undefined ? updates.maxContextTokens : current.maxContextTokens,
       sandboxEnabled:
         updates.sandboxEnabled !== undefined ? updates.sandboxEnabled : current.sandboxEnabled,
       isConfigured:

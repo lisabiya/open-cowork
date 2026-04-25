@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPathWithinRoot, normalizePathForContainment } from '../src/main/tools/path-containment';
+import { isPathWithinRoot, normalizePathForContainment } from '../src/shared/path-containment';
 
 describe('normalizePathForContainment', () => {
   it('normalizes mixed separators and trims trailing separators', () => {

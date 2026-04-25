@@ -13,7 +13,7 @@ import type {
   PluginToggleResult,
 } from '../../renderer/types';
 import { log, logError } from '../utils/logger';
-import { isPathWithinRoot } from '../tools/path-containment';
+import { isPathWithinRoot } from '../../shared/path-containment';
 import { getDefaultShell } from '../utils/shell-resolver';
 import { withRetry } from '../utils/retry';
 import { getWindowsRegistryPathEntries } from '../runtime/runtime-resolver';

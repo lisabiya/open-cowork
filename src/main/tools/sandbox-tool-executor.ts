@@ -13,7 +13,7 @@ import { PathResolver } from '../sandbox/path-resolver';
 // Logger imports removed - using sandbox adapter's internal logging
 import type { ToolResult, ExecutionContext, MountedPath } from '../../renderer/types';
 import { isUncPath } from '../../shared/local-file-path';
-import { isPathWithinRoot } from './path-containment';
+import { isPathWithinRoot } from '../../shared/path-containment';
 
 /**
  * SandboxToolExecutor - Executes tools through the sandbox

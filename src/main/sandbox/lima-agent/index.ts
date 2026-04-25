@@ -17,7 +17,7 @@ import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
-import { isPathWithinRoot } from './path-containment';
+import { isPathWithinRoot } from '../../../shared/path-containment';
 
 // Types
 interface JSONRPCRequest {

@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import type { MountedPath } from '../../renderer/types';
 import { logWarn, logError } from '../utils/logger';
-import { isPathWithinRoot } from '../tools/path-containment';
+import { isPathWithinRoot } from '../../shared/path-containment';
 
 /**
  * PathResolver - Core security component for sandboxed file system access

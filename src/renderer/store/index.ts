@@ -10,6 +10,9 @@ import type {
   SandboxSetupProgress,
   SandboxSyncStatus,
   SkillsStorageChangeEvent,
+  SessionCompactionInfo,
+  SessionCompactionState,
+  TokenBudgetSnapshot,
 } from '../types';
 import { applySessionUpdate } from '../utils/session-update';
 
@@ -49,6 +52,9 @@ export interface SessionState {
   executionClock: SessionExecutionClock;
   traceSteps: TraceStep[];
   contextWindow: number;
+  tokenBudget: TokenBudgetSnapshot | null;
+  latestCompaction: SessionCompactionInfo | null;
+  compactionState: SessionCompactionState | null;
 }
 
 const DEFAULT_SESSION_STATE: SessionState = {
@@ -66,6 +72,9 @@ const DEFAULT_SESSION_STATE: SessionState = {
   executionClock: { startAt: null, endAt: null },
   traceSteps: [],
   contextWindow: 0,
+  tokenBudget: null,
+  latestCompaction: null,
+  compactionState: null,
 };
 
 // Helper to immutably update a single session's state within the record
@@ -203,6 +212,9 @@ interface AppState {
 
   // Context window actions
   setSessionContextWindow: (sessionId: string, contextWindow: number) => void;
+  setSessionTokenBudget: (sessionId: string, tokenBudget: TokenBudgetSnapshot | null) => void;
+  setSessionCompactionState: (sessionId: string, compactionState: SessionCompactionState | null) => void;
+  setSessionCompaction: (sessionId: string, info: SessionCompactionInfo | null) => void;
 
   // System theme actions
   setSystemDarkMode: (dark: boolean) => void;
@@ -630,6 +642,18 @@ export const useAppStore = create<AppState>((set) => ({
   setSessionContextWindow: (sessionId, contextWindow) =>
     set((state) => ({
       sessionStates: patchSession(state.sessionStates, sessionId, { contextWindow }),
+    })),
+  setSessionTokenBudget: (sessionId, tokenBudget) =>
+    set((state) => ({
+      sessionStates: patchSession(state.sessionStates, sessionId, { tokenBudget }),
+    })),
+  setSessionCompactionState: (sessionId, compactionState) =>
+    set((state) => ({
+      sessionStates: patchSession(state.sessionStates, sessionId, { compactionState }),
+    })),
+  setSessionCompaction: (sessionId, latestCompaction) =>
+    set((state) => ({
+      sessionStates: patchSession(state.sessionStates, sessionId, { latestCompaction }),
     })),
 
   // System theme actions

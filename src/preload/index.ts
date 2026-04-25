@@ -42,6 +42,7 @@ let ipcListener: ((event: Electron.IpcRendererEvent, data: ServerEvent) => void)
 const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>([
   'session.start',
   'session.continue',
+  'session.compact',
   'session.stop',
   'session.delete',
   'session.batchDelete',

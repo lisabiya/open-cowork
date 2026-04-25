@@ -53,6 +53,7 @@ import type { SkillsAdapter } from '../skills/skills-adapter';
 import { configStore } from '../config/config-store';
 import { normalizeOpenAICompatibleBaseUrl } from '../config/auth-utils';
 import { resolveMessageEndPayload, toUserFacingErrorText } from './agent-runner-message-end';
+import { ProjectMemoryService } from '../memory/project-memory';
 import {
   applyPiModelRuntimeOverrides,
   buildSyntheticPiModel,
@@ -72,6 +73,15 @@ import {
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { executeWindowsBash } from '../tools/windows-bash-executor';
 import { resolvePreferredWindowsShell, getWindowsRegistryPathEntries } from '../runtime/runtime-resolver';
+import {
+  copyDirectorySync,
+  getAppClaudeDir,
+  getRuntimeSkillsDir,
+  resolveBuiltinSkillsPath,
+  resolveGlobalSkillsPath,
+  syncConfiguredSkillsToRuntimeDir,
+  syncUserSkillsToDir,
+} from '../skills/skill-paths';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -93,6 +103,15 @@ interface StableHistoryPreambleResult {
   excludedCurrentTurnUser: boolean;
   historyCharBudget: number;
 }
+
+type AnthropicPayloadMessage = {
+  role?: string;
+  content?: unknown;
+};
+
+type AnthropicPayload = {
+  messages?: AnthropicPayloadMessage[];
+};
 
 function normalizeHistoryText(text: string): string {
   return text.replace(/\r\n?/g, '\n');
@@ -116,8 +135,17 @@ function extractStableHistoryEntries(messages: Message[]): StableHistoryEntry[] 
     }
 
     const text = message.content
-      .filter((content) => content.type === 'text')
-      .map((content) => normalizeHistoryText((content as { text: string }).text))
+      .map((content) => {
+        if (content.type === 'text') {
+          return normalizeHistoryText((content as { text: string }).text);
+        }
+        if (content.type === 'thinking') {
+          const thinkingText = (content as { thinking: string }).thinking;
+          return `<thinking>${escapeXmlText(thinkingText)}</thinking>`;
+        }
+        return '';
+      })
+      .filter(Boolean)
       .join('\n');
 
     if (!text.trim()) {
@@ -201,6 +229,166 @@ function buildStableConversationHistoryPreamble(input: {
     omittedMessages,
     excludedCurrentTurnUser,
     historyCharBudget,
+  };
+}
+
+function getBlockText(block: unknown): string | null {
+  if (!block || typeof block !== 'object') {
+    return null;
+  }
+  const typed = block as { type?: unknown; text?: unknown };
+  if (typed.type !== 'text' || typeof typed.text !== 'string') {
+    return null;
+  }
+  return typed.text;
+}
+
+function restoreThinkingBlockForPayload(block: Record<string, unknown>): Record<string, unknown> {
+  if (block.redacted === true) {
+    const redactedData =
+      typeof block.thinkingSignature === 'string' && block.thinkingSignature.trim().length > 0
+        ? block.thinkingSignature
+        : block.signature;
+    if (typeof redactedData === 'string' && redactedData.trim().length > 0) {
+      return {
+        type: 'redacted_thinking',
+        data: redactedData,
+      };
+    }
+  }
+
+  const restored: Record<string, unknown> = {
+    type: 'thinking',
+    thinking: block.thinking,
+  };
+
+  if (typeof block.thinkingSignature === 'string' && block.thinkingSignature.trim().length > 0) {
+    restored.signature = block.thinkingSignature;
+  }
+  if (typeof block.signature === 'string' && block.signature.trim().length > 0) {
+    restored.signature = block.signature;
+  }
+
+  return restored;
+}
+
+function thinkingTextsMatch(text: string, thinking: string): boolean {
+  return text === thinking || text.trim() === thinking.trim();
+}
+
+export function restoreUnsignedThinkingBlocksForAnthropicPayload(
+  payload: unknown,
+  sourceMessages: unknown[]
+): unknown {
+  if (!payload || typeof payload !== 'object') {
+    return payload;
+  }
+
+  const typedPayload = payload as AnthropicPayload;
+  if (!Array.isArray(typedPayload.messages)) {
+    return payload;
+  }
+
+  const sourceThinkingEntries = sourceMessages.flatMap((message) => {
+    if (
+      !message ||
+      typeof message !== 'object' ||
+      (message as { role?: unknown }).role !== 'assistant' ||
+      !Array.isArray((message as { content?: unknown }).content)
+    ) {
+      return [];
+    }
+
+    return ((message as { content: Array<Record<string, unknown>> }).content)
+      .filter((block) => {
+        if (block.type !== 'thinking') return false;
+        return typeof block.thinking === 'string' && block.thinking.trim().length > 0;
+      })
+      .map((block) => ({
+        thinking: block.thinking as string,
+        payloadBlock: restoreThinkingBlockForPayload(block),
+        used: false,
+      }));
+  });
+  let changed = false;
+
+  const messages = typedPayload.messages.map((message) => {
+    if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+      return message;
+    }
+
+    if (sourceThinkingEntries.length === 0) {
+      return message;
+    }
+
+    const content = message.content.map((block) => {
+      const text = getBlockText(block);
+      if (text == null) {
+        return block;
+      }
+
+      const matchingThinkingEntry = sourceThinkingEntries.find(
+        (entry) => !entry.used && thinkingTextsMatch(text, entry.thinking)
+      );
+      if (!matchingThinkingEntry) {
+        return block;
+      }
+
+      matchingThinkingEntry.used = true;
+      changed = true;
+      return matchingThinkingEntry.payloadBlock;
+    });
+
+    return { ...message, content };
+  });
+
+  return changed ? { ...typedPayload, messages } : payload;
+}
+
+function disableThinkingForAnthropicPayload(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object') {
+    return payload;
+  }
+
+  const typedPayload = payload as AnthropicPayload & { thinking?: unknown };
+  if (!Array.isArray(typedPayload.messages)) {
+    return { ...typedPayload, thinking: { type: 'disabled' } };
+  }
+
+  const messages = typedPayload.messages
+    .map((message) => {
+      if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+        return message;
+      }
+
+      const content = message.content
+        .map((block) => {
+          if (!block || typeof block !== 'object') {
+            return block;
+          }
+          const typed = block as {
+            type?: unknown;
+            thinking?: unknown;
+            data?: unknown;
+          };
+          if (typed.type === 'thinking' && typeof typed.thinking === 'string') {
+            return { type: 'text', text: typed.thinking };
+          }
+          if (typed.type === 'redacted_thinking') {
+            return null;
+          }
+          return block;
+        })
+        .filter(Boolean);
+
+      return content.length > 0 ? { ...message, content } : null;
+    })
+    .filter(Boolean) as AnthropicPayloadMessage[];
+
+  return {
+    ...typedPayload,
+    thinking: { type: 'disabled' },
+    messages,
   };
 }
 
@@ -670,6 +858,7 @@ export class ClaudeAgentRunner {
   // @ts-expect-error stored for future plugin support
   private _pluginRuntimeService?: PluginRuntimeService;
   private _skillsAdapter?: SkillsAdapter;
+  private projectMemoryService = new ProjectMemoryService();
   private activeControllers: Map<string, AbortController> = new Map();
   private piSessions: Map<string, CachedPiSession> = new Map();
   private static readonly MAX_CACHED_SESSIONS = 50;
@@ -758,190 +947,56 @@ ${hints.join('\n')}
   /** Fallback skill path resolution when SkillsAdapter is not provided. */
   private legacySkillPaths(): string[] {
     const paths: string[] = [];
-    const builtin = this.getBuiltinSkillsPath();
+    const builtin = resolveBuiltinSkillsPath({
+      onFound: (skillsPath) => log('[ClaudeAgentRunner] Found built-in skills at:', skillsPath),
+      onMissing: () => logWarn('[ClaudeAgentRunner] No built-in skills directory found'),
+    });
     if (builtin && fs.existsSync(builtin)) paths.push(builtin);
     const global = this.getConfiguredGlobalSkillsDir();
     if (global && fs.existsSync(global)) paths.push(global);
     return paths;
   }
 
-  /**
-   * Get the built-in skills directory (shipped with the app)
-   */
   private getBuiltinSkillsPath(): string {
-    // In development, skills are in the project's .claude/skills directory
-    // In production, they're extracted via extraResources to resources/skills
-    const appPath = app.getAppPath();
-    const unpackedPath = appPath.replace(/\.asar$/, '.asar.unpacked');
-
-    const possiblePaths = [
-      // Development: relative to this file
-      path.join(__dirname, '..', '..', '..', '.claude', 'skills'),
-      // Production: extraResources extracts .claude/skills → resources/skills
-      // This is the preferred production path (real directory, no asar issues)
-      path.join(process.resourcesPath || '', 'skills'),
-      // Legacy: in app.asar.unpacked (for older builds with asarUnpack)
-      ...(this.physicalDirExists(path.join(unpackedPath, '.claude', 'skills'))
-        ? [path.join(unpackedPath, '.claude', 'skills')]
-        : []),
-      // Last resort: read from inside the asar archive (Electron intercepts this)
-      path.join(appPath, '.claude', 'skills'),
-    ];
-
-    for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
-        log('[ClaudeAgentRunner] Found built-in skills at:', p);
-        return p;
-      }
-    }
-
-    logWarn('[ClaudeAgentRunner] No built-in skills directory found');
-    return '';
-  }
-
-  /**
-   * Check if a directory physically exists on disk, bypassing Electron's
-   * asar interception.
-   */
-  private physicalDirExists(dirPath: string): boolean {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const originalFs = require('original-fs') as typeof import('fs');
-      return originalFs.existsSync(dirPath) && originalFs.statSync(dirPath).isDirectory();
-    } catch {
-      return false;
-    }
+    return resolveBuiltinSkillsPath({
+      onFound: (skillsPath) => log('[ClaudeAgentRunner] Found built-in skills at:', skillsPath),
+      onMissing: () => logWarn('[ClaudeAgentRunner] No built-in skills directory found'),
+    });
   }
 
   private getAppClaudeDir(): string {
-    return path.join(app.getPath('userData'), 'claude');
+    return getAppClaudeDir();
   }
 
   private getRuntimeSkillsDir(): string {
-    return path.join(this.getAppClaudeDir(), 'skills');
+    return getRuntimeSkillsDir();
   }
 
   private getConfiguredGlobalSkillsDir(): string {
-    const configuredPath = (configStore.get('globalSkillsPath') || '').trim();
-    if (!configuredPath) {
-      return this.getRuntimeSkillsDir();
-    }
-
-    const resolvedPath = path.resolve(configuredPath);
-    try {
-      if (!fs.existsSync(resolvedPath)) {
-        fs.mkdirSync(resolvedPath, { recursive: true });
-      }
-      if (fs.statSync(resolvedPath).isDirectory()) {
-        return resolvedPath;
-      }
-      logWarn(
-        '[ClaudeAgentRunner] Configured skills path is not a directory, fallback to runtime path:',
-        resolvedPath
-      );
-    } catch (error) {
-      logWarn(
-        '[ClaudeAgentRunner] Configured skills path is unavailable, fallback to runtime path:',
-        resolvedPath,
-        error
-      );
-    }
-
-    return this.getRuntimeSkillsDir();
-  }
-
-  private getUserClaudeSkillsDir(): string {
-    return path.join(app.getPath('home'), '.claude', 'skills');
+    return resolveGlobalSkillsPath({
+      configuredPath: configStore.get('globalSkillsPath') || undefined,
+      onFallback: (_fallbackPath, preferredPath) =>
+        logWarn(
+          '[ClaudeAgentRunner] Configured skills path is unavailable, fallback to runtime path:',
+          preferredPath
+        ),
+    });
   }
 
   private syncUserSkillsToAppDir(appSkillsDir: string): void {
-    const userSkillsDir = this.getUserClaudeSkillsDir();
-    if (!fs.existsSync(userSkillsDir)) {
-      return;
-    }
-
-    const entries = fs.readdirSync(userSkillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const sourcePath = path.join(userSkillsDir, entry.name);
-      const targetPath = path.join(appSkillsDir, entry.name);
-
-      if (fs.existsSync(targetPath)) {
-        try {
-          const stat = fs.lstatSync(targetPath);
-          if (!stat.isSymbolicLink()) {
-            continue;
-          }
-          fs.unlinkSync(targetPath);
-        } catch {
-          continue;
-        }
-      }
-
-      try {
-        fs.symlinkSync(sourcePath, targetPath, 'dir');
-      } catch (err) {
-        try {
-          this.copyDirectorySync(sourcePath, targetPath);
-        } catch (copyErr) {
-          logWarn('[ClaudeAgentRunner] Failed to import user skill:', entry.name, copyErr);
-        }
-      }
-    }
+    syncUserSkillsToDir(appSkillsDir, {
+      onWarn: (message, error) => logWarn(`[ClaudeAgentRunner] ${message}`, error),
+    });
   }
 
   private syncConfiguredSkillsToRuntimeDir(runtimeSkillsDir: string): void {
-    const configuredSkillsDir = this.getConfiguredGlobalSkillsDir();
-    if (configuredSkillsDir === runtimeSkillsDir) {
-      return;
-    }
-    if (!fs.existsSync(configuredSkillsDir) || !fs.statSync(configuredSkillsDir).isDirectory()) {
-      return;
-    }
-
-    const entries = fs.readdirSync(configuredSkillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const sourcePath = path.join(configuredSkillsDir, entry.name);
-      const targetPath = path.join(runtimeSkillsDir, entry.name);
-      try {
-        if (fs.existsSync(targetPath)) {
-          // Use lstatSync so we don't follow symlinks — check the entry itself
-          const stat = fs.lstatSync(targetPath);
-          if (stat.isSymbolicLink()) {
-            fs.unlinkSync(targetPath);
-          } else {
-            fs.rmSync(targetPath, { recursive: true, force: true });
-          }
-        }
-        fs.symlinkSync(sourcePath, targetPath, 'dir');
-      } catch (err) {
-        try {
-          this.copyDirectorySync(sourcePath, targetPath);
-        } catch (copyErr) {
-          logWarn('[ClaudeAgentRunner] Failed to sync configured skill:', entry.name, copyErr);
-        }
-      }
-    }
+    syncConfiguredSkillsToRuntimeDir(runtimeSkillsDir, configStore.get('globalSkillsPath') || undefined, {
+      onWarn: (message, error) => logWarn(`[ClaudeAgentRunner] ${message}`, error),
+    });
   }
 
   private copyDirectorySync(source: string, target: string): void {
-    if (!fs.existsSync(target)) {
-      fs.mkdirSync(target, { recursive: true });
-    }
-
-    const entries = fs.readdirSync(source);
-    for (const entry of entries) {
-      const sourcePath = path.join(source, entry);
-      const targetPath = path.join(target, entry);
-      const stat = fs.statSync(sourcePath);
-
-      if (stat.isDirectory()) {
-        this.copyDirectorySync(sourcePath, targetPath);
-      } else {
-        fs.copyFileSync(sourcePath, targetPath);
-      }
-    }
+    copyDirectorySync(source, target);
   }
 
   constructor(
@@ -1845,6 +1900,28 @@ ${hints.join('\n')}
         this.piSessions.delete(session.id);
         cachedSession = undefined;
       }
+      if (cachedSession && cachedSession.thinkingLevel !== thinkingLevel) {
+        runtimeSignatureChangeReasons = [
+          ...runtimeSignatureChangeReasons,
+          `thinking:${cachedSession.thinkingLevel}->${thinkingLevel}`,
+        ];
+        logCtx(
+          '[ClaudeAgentRunner] Thinking level changed, recreating cached pi session:',
+          cachedSession.thinkingLevel,
+          '→',
+          thinkingLevel
+        );
+        try {
+          cachedSession.session.dispose();
+        } catch (disposeError) {
+          logWarn(
+            '[ClaudeAgentRunner] dispose error while recreating pi session for thinking change:',
+            disposeError
+          );
+        }
+        this.piSessions.delete(session.id);
+        cachedSession = undefined;
+      }
 
       let contextualPrompt = prompt;
       let historyPreamble = '';
@@ -2055,6 +2132,10 @@ This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the ro
             ? `<workspace_info>Your current workspace is: ${workingDir}</workspace_info>`
             : '';
 
+      const projectMemoryMaterial = workingDir
+        ? this.projectMemoryService.buildPromptMaterial(workingDir, prompt)
+        : null;
+
       const coworkAppendPrompt = [
         'You are an Open Cowork assistant. Be concise, accurate, and tool-capable.',
         `CRITICAL BEHAVIORAL RULES:
@@ -2084,6 +2165,7 @@ Tool routing:
 - If user explicitly asks to use Chrome/browser/web navigation, prioritize Chrome MCP tools (mcp__Chrome__*) over generic WebSearch/WebFetch.
 - Use WebSearch/WebFetch only when Chrome MCP is unavailable or the user explicitly asks for generic web search.
 </tool_behavior>`,
+        ...(projectMemoryMaterial?.promptSections ?? []),
         this.getBundledPathHints(),
       ]
         .filter((section): section is string => Boolean(section && section.trim()))
@@ -2343,10 +2425,48 @@ Tool routing:
         logTiming('pi-coding-agent session created', runStartTime);
       }
 
+      const usesAnthropicMessagesProtocol =
+        configProtocol === 'anthropic' || piModel.api === 'anthropic-messages';
+
       // Set up event handler to bridge pi-coding-agent events → our ServerEvent protocol
+      if (usesAnthropicMessagesProtocol) {
+        const agent = (piSession as unknown as { agent?: unknown }).agent as
+          | {
+              _onPayload?: (
+                payload: Record<string, unknown>,
+                modelArg: unknown
+              ) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
+              __openCoworkOriginalOnPayload?: (
+                payload: Record<string, unknown>,
+                modelArg: unknown
+              ) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
+              state?: { messages?: unknown[] };
+            }
+          | undefined;
+
+        if (agent && '_onPayload' in agent) {
+          if (!agent.__openCoworkOriginalOnPayload) {
+            agent.__openCoworkOriginalOnPayload = agent._onPayload;
+          }
+          const originalOnPayload = agent.__openCoworkOriginalOnPayload;
+          agent._onPayload = async (payload: Record<string, unknown>, modelArg: unknown) => {
+            const nextPayload = originalOnPayload
+              ? ((await originalOnPayload.call(agent, payload, modelArg)) ?? payload)
+              : payload;
+            if (!enableThinking) {
+              return disableThinkingForAnthropicPayload(nextPayload) as Record<string, unknown>;
+            }
+            return restoreUnsignedThinkingBlocksForAnthropicPayload(
+              nextPayload,
+              agent.state?.messages ?? []
+            ) as Record<string, unknown>;
+          };
+        }
+      }
 
       // Accumulate streamed text deltas in case message_end.content is empty (pi SDK streaming behaviour)
       let streamedText = '';
+      let streamedThinking = '';
       let compactionStepId: string | undefined;
       let hasEmittedError = false;
       let terminalErrorText: string | undefined;
@@ -2460,8 +2580,11 @@ Tool routing:
               const ame = event.assistantMessageEvent;
               if (ame.type === 'text_delta') {
                 markFirstStreamEvent(ame.type);
-                const parsed = thinkParser.push(ame.delta);
+                const parsed = enableThinking
+                  ? thinkParser.push(ame.delta)
+                  : { text: ame.delta, thinking: '' };
                 if (parsed.thinking) {
+                  streamedThinking += parsed.thinking;
                   this.sendToRenderer({
                     type: 'stream.thinking',
                     payload: { sessionId: session.id, delta: parsed.thinking },
@@ -2473,6 +2596,7 @@ Tool routing:
                 }
               } else if (ame.type === 'thinking_delta') {
                 markFirstStreamEvent(ame.type);
+                streamedThinking += ame.delta;
                 // Forward thinking delta to renderer for real-time display
                 this.sendToRenderer({
                   type: 'stream.thinking',
@@ -2513,8 +2637,9 @@ Tool routing:
               if (controller.signal.aborted) break;
 
               // Flush any buffered content from the think-tag parser
-              const flushed = thinkParser.flush();
+              const flushed = enableThinking ? thinkParser.flush() : { text: '', thinking: '' };
               if (flushed.thinking) {
+                streamedThinking += flushed.thinking;
                 this.sendToRenderer({
                   type: 'stream.thinking',
                   payload: { sessionId: session.id, delta: flushed.thinking },
@@ -2532,8 +2657,10 @@ Tool routing:
               const resolvedPayload = resolveMessageEndPayload({
                 message: msg as Parameters<typeof resolveMessageEndPayload>[0]['message'],
                 streamedText,
+                streamedThinking,
               });
               streamedText = resolvedPayload.nextStreamedText;
+              streamedThinking = resolvedPayload.nextStreamedThinking;
               if (provider === 'ollama') {
                 log(
                   '[ClaudeAgentRunner] Ollama message_end diagnostics',
@@ -2598,10 +2725,17 @@ Tool routing:
                       input: block.arguments,
                     });
                   } else if (block.type === 'thinking') {
+                    if (!enableThinking) {
+                      continue;
+                    }
                     // Include thinking blocks in the final message for UI display
                     contentBlocks.push({
                       type: 'thinking',
                       thinking: block.thinking,
+                      ...(block.thinkingSignature
+                        ? { thinkingSignature: block.thinkingSignature }
+                        : {}),
+                      ...(block.redacted ? { redacted: true } : {}),
                     });
                   } else {
                     // Unknown block type — pass through as text so content isn't silently lost
@@ -2816,6 +2950,15 @@ Tool routing:
           title: 'Request timed out',
         });
         return;
+      }
+      if (
+        terminalErrorText &&
+        /content\[\]\.thinking|thinking mode|thinking.*passed back/i.test(terminalErrorText)
+      ) {
+        logCtx(
+          '[ClaudeAgentRunner] Clearing cached SDK session after upstream thinking payload error'
+        );
+        this.clearSdkSession(session.id);
       }
       // Complete - update the initial thinking step
       this.sendTraceUpdate(session.id, thinkingStepId, {

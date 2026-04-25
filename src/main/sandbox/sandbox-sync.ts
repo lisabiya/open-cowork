@@ -18,7 +18,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { log, logError } from '../utils/logger';
 import { pathConverter } from './wsl-bridge';
-import { isPathWithinRoot } from '../tools/path-containment';
+import { isPathWithinRoot } from '../../shared/path-containment';
 
 const execFileAsync = promisify(execFile);
 

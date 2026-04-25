@@ -12,7 +12,8 @@ describe('theme settings persistence', () => {
 
     expect(source).toContain("const DARK_BG = '#171614';");
     expect(source).toContain("const LIGHT_BG = '#f5f3ee';");
-    expect(source).toContain("configStore.update({ theme: nextTheme });");
+    expect(source).toContain('configUpdates.theme = nextTheme;');
+    expect(source).toContain('configStore.update(configUpdates);');
     expect(source).toContain('nativeTheme.themeSource = theme;');
     expect(source).toContain('mainWindow.setBackgroundColor(');
     expect(source).toContain("getSavedThemePreference() === 'system'");
@@ -24,7 +25,7 @@ describe('theme settings persistence', () => {
     const source = fs.readFileSync(useIPCPath, 'utf8');
 
     expect(source).toContain('const applyConfigSnapshot = (config: AppConfig, isConfigured: boolean) => {');
-    expect(source).toContain("store.setSettings({ theme: config.theme || 'light' });");
+    expect(source).toContain("theme: config.theme || 'light'");
     expect(source).toContain('window.electronAPI.config.get()');
     expect(source).toContain('window.electronAPI.getSystemTheme()');
   });

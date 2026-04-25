@@ -5,7 +5,7 @@ import { glob } from 'glob';
 import { PathResolver } from '../sandbox/path-resolver';
 import type { ToolResult, ExecutionContext, MountedPath } from '../../renderer/types';
 import { isUncPath } from '../../shared/local-file-path';
-import { isPathWithinRoot } from './path-containment';
+import { isPathWithinRoot } from '../../shared/path-containment';
 import { executeWindowsPowerShell } from './windows-powershell-executor';
 
 /**

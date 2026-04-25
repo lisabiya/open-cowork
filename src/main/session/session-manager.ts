@@ -15,17 +15,22 @@ import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import type {
+  CompactionTrigger,
   Session,
+  SessionContextConfig,
+  SessionCompactionInfo,
+  SessionCompactionState,
   Message,
   ServerEvent,
   PermissionResult,
   ContentBlock,
   TextContent,
+  TokenBudgetSnapshot,
   TraceStep,
   FileAttachmentContent,
   SessionMessagesPage,
 } from '../../renderer/types';
-import type { DatabaseInstance, TraceStepRow } from '../db/database';
+import type { CompactionSnapshotRow, DatabaseInstance, TraceStepRow } from '../db/database';
 import { PathResolver } from '../sandbox/path-resolver';
 import {
   SandboxAdapter,
@@ -54,8 +59,22 @@ import {
   getDefaultTitleFromPrompt,
   normalizeGeneratedTitle,
 } from './session-title-utils';
-import { generateTitleWithClaudeSdk } from '../claude/claude-sdk-one-shot';
+import { completeWithClaudeSdk, generateTitleWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
+import {
+  buildTokenBudgetSnapshot,
+  estimateMessagesTokens,
+  estimateTextTokens,
+  getStrategyThresholds,
+} from '../context/context-budget';
+import {
+  buildCompactionInfo,
+  createBoundarySummaryMessage,
+  getPreservedTailCount,
+  microCompactMessages,
+  rebuildRuntimeMessagesFromSnapshot,
+} from '../context/context-compaction';
+import { ProjectMemoryService } from '../memory/project-memory';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -65,6 +84,15 @@ interface AgentRunner {
 
 const WORKSPACE_MOUNT_VIRTUAL_PATH = '/mnt/workspace';
 const TITLE_GENERATION_TIMEOUT_MS = 20000;
+const BASE_SYSTEM_PROMPT_TOKEN_ESTIMATE = 1800;
+const COMPACTION_SUMMARY_SYSTEM_PROMPT = `Summarize earlier conversation history for a coding agent that must continue the same task with limited context.
+Keep only durable, high-value information:
+- the user's goal, constraints, and preferences
+- decisions that were made and why
+- files, commands, errors, and outputs that still matter
+- unfinished work and next important steps
+Do not preserve verbose tool output unless it changes the outcome.
+Respond in concise markdown with short sections and no code fences unless essential.`;
 
 export class SessionManager {
   private db: DatabaseInstance;
@@ -75,8 +103,10 @@ export class SessionManager {
   private mcpManager: MCPManager;
   private pluginRuntimeService?: PluginRuntimeService;
   private activeSessions: Map<string, AbortController> = new Map();
-  private promptQueues: Map<string, Array<{ prompt: string; content?: ContentBlock[] }>> =
-    new Map();
+  private promptQueues: Map<
+    string,
+    Array<{ prompt: string; content?: ContentBlock[]; contextConfig?: SessionContextConfig }>
+  > = new Map();
   private pendingPermissions: Map<string, (result: PermissionResult) => void> = new Map();
   private pendingSudoPasswords: Map<
     string,
@@ -86,6 +116,8 @@ export class SessionManager {
   private sessionTitleAttempts: Set<string> = new Set();
   private titleGenerationTokens: Map<string, symbol> = new Map();
   private messageCache: Map<string, Message[]> = new Map();
+  private projectMemoryService = new ProjectMemoryService();
+  private restoreNoticeSent: Set<string> = new Set();
   private static readonly MAX_CACHE_SIZE = 100;
 
   constructor(
@@ -237,7 +269,8 @@ export class SessionManager {
     prompt: string,
     cwd?: string,
     allowedTools?: string[],
-    content?: ContentBlock[]
+    content?: ContentBlock[],
+    contextConfig?: SessionContextConfig
   ): Promise<Session> {
     log('[SessionManager] Starting new session:', title);
 
@@ -247,7 +280,7 @@ export class SessionManager {
     this.saveSession(session);
 
     // Start processing the prompt with content blocks
-    this.enqueuePrompt(session, prompt, content);
+    this.enqueuePrompt(session, prompt, content, contextConfig);
 
     return session;
   }
@@ -257,7 +290,14 @@ export class SessionManager {
     if (!cwd) {
       return [];
     }
-    return [{ virtual: WORKSPACE_MOUNT_VIRTUAL_PATH, real: cwd }];
+    const mountedPaths: Session['mountedPaths'] = [
+      { virtual: WORKSPACE_MOUNT_VIRTUAL_PATH, real: cwd },
+    ];
+    const projectMemoryMount = this.projectMemoryService.getMountedPath(cwd);
+    if (projectMemoryMount) {
+      mountedPaths.push(projectMemoryMount);
+    }
+    return mountedPaths;
   }
 
   private createSession(title: string, cwd?: string, allowedTools?: string[]): Session {
@@ -388,7 +428,8 @@ export class SessionManager {
   async continueSession(
     sessionId: string,
     prompt: string,
-    content?: ContentBlock[]
+    content?: ContentBlock[],
+    contextConfig?: SessionContextConfig
   ): Promise<void> {
     log('[SessionManager] Continuing session:', sessionId);
 
@@ -397,7 +438,47 @@ export class SessionManager {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
-    this.enqueuePrompt(session, prompt, content);
+    this.enqueuePrompt(session, prompt, content, contextConfig);
+  }
+
+  async compactSession(sessionId: string, contextConfig?: SessionContextConfig): Promise<void> {
+    const session = this.loadSession(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    if (this.activeSessions.has(sessionId)) {
+      throw new Error('Session is currently running. Please compact after the current turn finishes.');
+    }
+
+    const runtime = this.getRuntimeMessages(sessionId);
+    this.maybeNotifyRestoredFromBoundary(sessionId, runtime.snapshot);
+    if (runtime.messages.length <= 1) {
+      this.emitCompactionNotice(sessionId, 'info', '当前会话内容过短，暂时不需要压缩。');
+      return;
+    }
+
+    const resolvedConfig = this.resolveContextConfig(contextConfig);
+    const runtimeConfig = configStore.getAll();
+    const contextWindow = runtimeConfig.contextWindow || 180000;
+    const systemPromptTokens = this.estimateSystemPromptTokens(session, '');
+    const beforeBudget = buildTokenBudgetSnapshot({
+      messages: runtime.messages,
+      contextWindow,
+      maxContextTokens: resolvedConfig.maxContextTokens,
+      strategy: resolvedConfig.memoryStrategy,
+      systemPromptTokens,
+    });
+    this.emitTokenBudget(sessionId, beforeBudget);
+
+    const result = await this.performFullCompaction(session, runtime.messages, 'manual');
+    const afterBudget = buildTokenBudgetSnapshot({
+      messages: result.runtimeMessages,
+      contextWindow,
+      maxContextTokens: resolvedConfig.maxContextTokens,
+      strategy: resolvedConfig.memoryStrategy,
+      systemPromptTokens,
+    });
+    this.emitTokenBudget(sessionId, afterBudget);
   }
 
   async generateSessionTitleFromPrompt(prompt: string): Promise<string> {
@@ -592,11 +673,309 @@ export class SessionManager {
     return processedContent;
   }
 
+  private resolveContextConfig(override?: SessionContextConfig): SessionContextConfig {
+    const config = configStore.getAll();
+    return {
+      memoryStrategy: override?.memoryStrategy ?? config.memoryStrategy ?? 'auto',
+      maxContextTokens: override?.maxContextTokens ?? config.maxContextTokens ?? 180000,
+    };
+  }
+
+  private estimateSystemPromptTokens(session: Session, userPrompt: string): number {
+    const promptMaterial = session.cwd
+      ? this.projectMemoryService.buildPromptMaterial(session.cwd, userPrompt)
+      : null;
+    const memoryTokens = promptMaterial
+      ? estimateTextTokens(promptMaterial.promptSections.join('\n\n'))
+      : 0;
+    return BASE_SYSTEM_PROMPT_TOKEN_ESTIMATE + memoryTokens;
+  }
+
+  private emitTokenBudget(sessionId: string, snapshot: TokenBudgetSnapshot): void {
+    this.sendToRenderer({
+      type: 'session.tokenBudget',
+      payload: { sessionId, snapshot },
+    });
+  }
+
+  private emitCompaction(sessionId: string, info: SessionCompactionInfo): void {
+    this.sendToRenderer({
+      type: 'session.compaction',
+      payload: { sessionId, info },
+    });
+  }
+
+  private emitCompactionState(sessionId: string, state: SessionCompactionState | null): void {
+    this.sendToRenderer({
+      type: 'session.compactionState',
+      payload: { sessionId, state },
+    });
+  }
+
+  private emitCompactionNotice(
+    sessionId: string,
+    level: 'info' | 'warning' | 'error',
+    message: string
+  ): void {
+    this.sendToRenderer({
+      type: 'session.compactionNotice',
+      payload: { sessionId, level, message },
+    });
+  }
+
+  private emitCompactionTrace(
+    sessionId: string,
+    title: string,
+    content: string,
+    status: TraceStep['status'] = 'completed'
+  ): void {
+    this.sendToRenderer({
+      type: 'trace.step',
+      payload: {
+        sessionId,
+        step: {
+          id: uuidv4(),
+          type: 'text',
+          status,
+          title,
+          content,
+          timestamp: Date.now(),
+        },
+      },
+    });
+  }
+
+  private getRuntimeMessages(sessionId: string): {
+    messages: Message[];
+    snapshot: CompactionSnapshotRow | null;
+  } {
+    const fullMessages = this.getMessages(sessionId);
+    const snapshot = this.db.compactionSnapshots.getLatestBySessionId(sessionId);
+    if (!snapshot) {
+      return { messages: fullMessages, snapshot: null };
+    }
+
+    return {
+      messages: rebuildRuntimeMessagesFromSnapshot(sessionId, snapshot, fullMessages),
+      snapshot,
+    };
+  }
+
+  private maybeNotifyRestoredFromBoundary(sessionId: string, snapshot: CompactionSnapshotRow | null): void {
+    if (!snapshot || this.restoreNoticeSent.has(sessionId)) {
+      return;
+    }
+    this.restoreNoticeSent.add(sessionId);
+    this.emitCompactionNotice(sessionId, 'info', '已从压缩快照恢复运行时上下文');
+    this.emitCompactionTrace(
+      sessionId,
+      'Application context restored',
+      `Restored runtime context from ${new Date(snapshot.created_at).toISOString()} boundary.`
+    );
+  }
+
+  private serializeMessageForCompaction(message: Message): string {
+    const blocks = message.content
+      .map((block) => {
+        if (block.type === 'text') {
+          return block.text;
+        }
+        if (block.type === 'thinking') {
+          return `[thinking] ${block.thinking}`;
+        }
+        if (block.type === 'tool_use') {
+          return `[tool_use ${block.name}] ${JSON.stringify(block.input)}`;
+        }
+        if (block.type === 'tool_result') {
+          return `[tool_result ${block.toolUseId}] ${block.content}`;
+        }
+        if (block.type === 'file_attachment') {
+          return `[file_attachment] ${block.filename} (${block.relativePath})`;
+        }
+        if (block.type === 'image') {
+          return '[image]';
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+    return `${message.role.toUpperCase()}:\n${blocks}`.trim();
+  }
+
+  private buildFallbackCompactionSummary(messages: Message[]): string {
+    const lastUserText = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user')
+      ?.content.find((block) => block.type === 'text');
+    const touchedFiles = messages
+      .flatMap((message) => message.content)
+      .filter((block) => block.type === 'file_attachment')
+      .map((block) => `- ${(block as FileAttachmentContent).relativePath}`)
+      .slice(0, 6);
+    return [
+      '## Goal',
+      lastUserText && 'text' in lastUserText ? lastUserText.text.slice(0, 400) : 'Continue the existing session.',
+      '',
+      '## Important Context',
+      touchedFiles.length > 0 ? touchedFiles.join('\n') : '- Preserve recent decisions and continue from the latest visible tail.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  private async generateCompactionSummary(messages: Message[]): Promise<string> {
+    const serializedHistory = messages
+      .map((message) => this.serializeMessageForCompaction(message))
+      .filter(Boolean)
+      .join('\n\n');
+    const prompt = [
+      'Summarize the earlier conversation so the assistant can continue with limited context.',
+      'Focus on user goals, constraints, decisions, important tool findings, errors that still matter, and unfinished work.',
+      'Earlier history:',
+      serializedHistory.slice(0, 24000),
+    ].join('\n\n');
+
+    try {
+      const result = await completeWithClaudeSdk(prompt, COMPACTION_SUMMARY_SYSTEM_PROMPT, configStore.getAll());
+      const text = result.text.trim();
+      if (text) {
+        return text;
+      }
+    } catch (error) {
+      logWarn('[SessionManager] Compaction summary generation failed, using fallback', error);
+    }
+
+    return this.buildFallbackCompactionSummary(messages);
+  }
+
+  private saveCompactionSnapshot(input: {
+    sessionId: string;
+    compactType: 'full';
+    summaryText: string;
+    preservedTail: Message[];
+    estimatedTokensBefore: number;
+    estimatedTokensAfter: number;
+    createdAt: number;
+  }): void {
+    this.db.compactionSnapshots.create({
+      id: uuidv4(),
+      session_id: input.sessionId,
+      compact_type: input.compactType,
+      summary_text: input.summaryText,
+      preserved_tail: JSON.stringify(input.preservedTail),
+      estimated_tokens_before: input.estimatedTokensBefore,
+      estimated_tokens_after: input.estimatedTokensAfter,
+      created_at: input.createdAt,
+    });
+  }
+
+  private async performFullCompaction(
+    session: Session,
+    runtimeMessages: Message[],
+    trigger: CompactionTrigger
+  ): Promise<{
+    runtimeMessages: Message[];
+    info: SessionCompactionInfo;
+  }> {
+    const startedAt = Date.now();
+    this.emitCompactionState(session.id, {
+      sessionId: session.id,
+      compactionType: 'full',
+      trigger,
+      startedAt,
+      message:
+        trigger === 'manual'
+          ? '正在压缩上下文，请稍候…'
+          : '上下文接近上限，正在自动压缩并重建运行时上下文…',
+    });
+    this.emitCompactionNotice(
+      session.id,
+      'info',
+      trigger === 'manual'
+        ? '正在压缩上下文，请稍候…'
+        : '上下文接近上限，正在自动压缩，请稍候…'
+    );
+
+    try {
+      const preservedTailCount = Math.min(getPreservedTailCount(trigger), runtimeMessages.length);
+      const preservedTail = runtimeMessages.slice(-preservedTailCount);
+      const olderMessages = runtimeMessages.slice(0, Math.max(0, runtimeMessages.length - preservedTailCount));
+
+      if (olderMessages.length === 0) {
+        const estimatedTokens = estimateMessagesTokens(runtimeMessages);
+        return {
+          runtimeMessages,
+          info: buildCompactionInfo({
+            sessionId: session.id,
+            compactionType: 'full',
+            trigger,
+            boundaryCreated: false,
+            estimatedTokensBefore: estimatedTokens,
+            estimatedTokensAfter: estimatedTokens,
+            preservedTailCount,
+            compactedMessageCount: 0,
+          }),
+        };
+      }
+
+      const summaryText = await this.generateCompactionSummary(olderMessages);
+      const boundaryMessage = createBoundarySummaryMessage(session.id, summaryText);
+      const createdAt = Date.now();
+      boundaryMessage.timestamp = createdAt;
+      const compactedRuntimeMessages = [boundaryMessage, ...preservedTail];
+      const estimatedTokensBefore = estimateMessagesTokens(runtimeMessages);
+      const estimatedTokensAfter = estimateMessagesTokens(compactedRuntimeMessages);
+
+      this.saveCompactionSnapshot({
+        sessionId: session.id,
+        compactType: 'full',
+        summaryText,
+        preservedTail,
+        estimatedTokensBefore,
+        estimatedTokensAfter,
+        createdAt,
+      });
+
+      const info = buildCompactionInfo({
+        sessionId: session.id,
+        compactionType: 'full',
+        trigger,
+        boundaryCreated: true,
+        estimatedTokensBefore,
+        estimatedTokensAfter,
+        preservedTailCount,
+        compactedMessageCount: olderMessages.length,
+        summaryText,
+      });
+
+      if (this.agentRunner.clearSdkSession) {
+        this.agentRunner.clearSdkSession(session.id);
+      }
+
+      this.emitCompaction(session.id, info);
+      this.emitCompactionNotice(
+        session.id,
+        'info',
+        trigger === 'manual' ? '已创建压缩快照并重建运行时上下文' : '上下文已自动压缩并创建快照'
+      );
+      this.emitCompactionTrace(
+        session.id,
+        'Application compaction',
+        `Created ${trigger} boundary. Tokens ${estimatedTokensBefore} -> ${estimatedTokensAfter}.`
+      );
+
+      return { runtimeMessages: compactedRuntimeMessages, info };
+    } finally {
+      this.emitCompactionState(session.id, null);
+    }
+  }
+
   // Process a prompt using ClaudeAgentRunner
   private async processPrompt(
     session: Session,
     prompt: string,
-    content?: ContentBlock[]
+    content?: ContentBlock[],
+    contextConfigOverride?: SessionContextConfig
   ): Promise<void> {
     const traceId = generateTraceId();
     return runWithLogContext({ sessionId: session.id, traceId }, async () => {
@@ -661,10 +1040,102 @@ export class SessionManager {
           messageContent.length,
           'content blocks'
         );
-        const messagesForContext = [...existingMessages, userMessage];
+
+        const { messages: runtimeMessagesBeforeCompaction, snapshot: latestBoundary } =
+          this.getRuntimeMessages(session.id);
+        this.maybeNotifyRestoredFromBoundary(session.id, latestBoundary);
+
+        const contextConfig = this.resolveContextConfig(contextConfigOverride);
+        const runtimeConfig = configStore.getAll();
+        const systemPromptTokens = this.estimateSystemPromptTokens(session, enhancedPrompt);
+        const contextWindow = runtimeConfig.contextWindow || 180000;
+        let budgetSnapshot = buildTokenBudgetSnapshot({
+          messages: runtimeMessagesBeforeCompaction,
+          contextWindow,
+          maxContextTokens: contextConfig.maxContextTokens,
+          strategy: contextConfig.memoryStrategy,
+          systemPromptTokens,
+        });
+        this.emitTokenBudget(session.id, budgetSnapshot);
+
+        let messagesForContext = runtimeMessagesBeforeCompaction;
+        const thresholds = getStrategyThresholds(contextConfig.memoryStrategy);
+        let sdkSessionNeedsReset = false;
+
+        if (budgetSnapshot.usageRatio >= thresholds.microCompactRatio) {
+          const microResult = microCompactMessages(
+            runtimeMessagesBeforeCompaction,
+            thresholds.preservedTailCount
+          );
+          if (microResult.compactedMessageCount > 0) {
+            messagesForContext = microResult.messages;
+            budgetSnapshot = buildTokenBudgetSnapshot({
+              messages: messagesForContext,
+              contextWindow,
+              maxContextTokens: contextConfig.maxContextTokens,
+              strategy: contextConfig.memoryStrategy,
+              systemPromptTokens,
+            });
+            sdkSessionNeedsReset = true;
+            const microInfo = buildCompactionInfo({
+              sessionId: session.id,
+              compactionType: 'micro',
+              trigger:
+                contextConfig.memoryStrategy === 'rolling'
+                  ? 'rolling'
+                  : contextConfig.memoryStrategy === 'manual'
+                    ? 'manual'
+                    : 'auto',
+              boundaryCreated: false,
+              estimatedTokensBefore: microResult.estimatedTokensBefore,
+              estimatedTokensAfter: microResult.estimatedTokensAfter,
+              preservedTailCount: thresholds.preservedTailCount,
+              compactedMessageCount: microResult.compactedMessageCount,
+            });
+            this.emitCompaction(session.id, microInfo);
+            this.emitCompactionTrace(
+              session.id,
+              'Application micro compact',
+              `Compacted ${microResult.compactedMessageCount} older messages. Tokens ${microResult.estimatedTokensBefore} -> ${microResult.estimatedTokensAfter}.`
+            );
+            this.emitTokenBudget(session.id, budgetSnapshot);
+          }
+        }
+
+        const compactTrigger: CompactionTrigger =
+          contextConfig.memoryStrategy === 'rolling'
+            ? 'rolling'
+            : contextConfig.memoryStrategy === 'manual'
+              ? 'manual'
+              : 'auto';
+
+        if (budgetSnapshot.usageRatio >= thresholds.fullCompactRatio) {
+          const fullCompaction = await this.performFullCompaction(
+            session,
+            messagesForContext,
+            compactTrigger
+          );
+          messagesForContext = fullCompaction.runtimeMessages;
+          budgetSnapshot = buildTokenBudgetSnapshot({
+            messages: messagesForContext,
+            contextWindow,
+            maxContextTokens: contextConfig.maxContextTokens,
+            strategy: contextConfig.memoryStrategy,
+            systemPromptTokens,
+          });
+          sdkSessionNeedsReset = false;
+          this.emitTokenBudget(session.id, budgetSnapshot);
+        } else if (budgetSnapshot.warningState === 'blocking') {
+          const blockingMessage =
+            contextConfig.memoryStrategy === 'manual'
+              ? '当前上下文已达到阻塞阈值，请先点击 Compact Now 再继续发送。'
+              : '当前上下文已达到阻塞阈值，自动压缩未能释放足够空间。';
+          this.emitCompactionNotice(session.id, 'error', blockingMessage);
+          throw new Error(blockingMessage);
+        }
 
         // Update session model to match current config (may have changed since session creation)
-        const currentModel = configStore.get('model');
+        const currentModel = runtimeConfig.model;
         if (currentModel && currentModel !== session.model) {
           session.model = currentModel;
           this.db.sessions.update(session.id, { model: currentModel });
@@ -674,11 +1145,29 @@ export class SessionManager {
           });
         }
 
+        if (sdkSessionNeedsReset && this.agentRunner.clearSdkSession) {
+          this.agentRunner.clearSdkSession(session.id);
+        }
+
         // Run the agent
         await this.agentRunner.run(session, enhancedPrompt, messagesForContext);
 
+        const refreshedRuntime = this.getRuntimeMessages(session.id);
+        const postRunBudget = buildTokenBudgetSnapshot({
+          messages: refreshedRuntime.messages,
+          contextWindow,
+          maxContextTokens: contextConfig.maxContextTokens,
+          strategy: contextConfig.memoryStrategy,
+          systemPromptTokens,
+        });
+        this.emitTokenBudget(session.id, postRunBudget);
+
         // 标题生成不再与首轮对话并发，避免与主请求竞争同一上游配额/通道导致体感变慢。
-        this.runSessionTitleGeneration(session, prompt, existingMessages).catch((err) =>
+        this.runSessionTitleGeneration(
+          session,
+          prompt,
+          existingMessages
+        ).catch((err) =>
           logCtxError('[SessionManager] Title generation failed:', err)
         );
       } catch (error) {
@@ -801,9 +1290,14 @@ export class SessionManager {
     );
   }
 
-  private enqueuePrompt(session: Session, prompt: string, content?: ContentBlock[]): void {
+  private enqueuePrompt(
+    session: Session,
+    prompt: string,
+    content?: ContentBlock[],
+    contextConfig?: SessionContextConfig
+  ): void {
     const queue = this.promptQueues.get(session.id) || [];
-    queue.push({ prompt, content });
+    queue.push({ prompt, content, contextConfig });
     this.promptQueues.set(session.id, queue);
 
     if (!this.activeSessions.has(session.id)) {
@@ -849,7 +1343,12 @@ export class SessionManager {
             return; // finally handles cleanup
           }
 
-          await this.processPrompt(latestSession, item.prompt, item.content);
+          await this.processPrompt(
+            latestSession,
+            item.prompt,
+            item.content,
+            item.contextConfig
+          );
 
           if (controller.signal.aborted) return; // finally handles cleanup
         }
@@ -935,6 +1434,7 @@ export class SessionManager {
     this.messageCache.delete(sessionId);
     this.sessionTitleAttempts.delete(sessionId);
     this.titleGenerationTokens.delete(sessionId);
+    this.restoreNoticeSent.delete(sessionId);
 
     log('[SessionManager] Session deleted:', sessionId);
   }
@@ -959,6 +1459,7 @@ export class SessionManager {
         this.messageCache.delete(sessionId);
         this.sessionTitleAttempts.delete(sessionId);
         this.titleGenerationTokens.delete(sessionId);
+        this.restoreNoticeSent.delete(sessionId);
       }
     })();
 

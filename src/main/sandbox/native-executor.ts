@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { log } from '../utils/logger';
-import { isPathWithinRoot } from '../tools/path-containment';
+import { isPathWithinRoot } from '../../shared/path-containment';
 import type { SandboxConfig, SandboxExecutor, ExecutionResult, DirectoryEntry } from './types';
 import { executeWindowsPowerShell } from '../tools/windows-powershell-executor';
 

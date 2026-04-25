@@ -44,7 +44,7 @@ export function ContextPanel() {
   const toggleContextPanel = useAppStore((s) => s.toggleContextPanel);
   const workingDir = useAppStore((s) => s.workingDir);
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
-  const { getMCPServers, changeWorkingDir } = useIPC();
+  const { getMCPServers, changeWorkingDir, compactSession } = useIPC();
   const [artifactsOpen, setArtifactsOpen] = useState(true);
   const [expandedConnector, setExpandedConnector] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>([]);
@@ -55,6 +55,12 @@ export function ContextPanel() {
     modifiedAt: number;
     size: number;
   }>>([]);
+  const ss = activeSessionId ? sessionStates[activeSessionId] : undefined;
+  const steps = ss?.traceSteps ?? EMPTY_STEPS;
+  const tokenBudget = ss?.tokenBudget ?? null;
+  const latestCompaction = ss?.latestCompaction ?? null;
+  const compactionState = ss?.compactionState ?? null;
+  const isCompacting = Boolean(compactionState);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -72,8 +78,33 @@ export function ContextPanel() {
     }
   };
 
-  const ss = activeSessionId ? sessionStates[activeSessionId] : undefined;
-  const steps = ss?.traceSteps ?? EMPTY_STEPS;
+  const handleCompactNow = async () => {
+    if (!activeSessionId || ss?.compactionState) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      '这会创建新的压缩快照并重建运行时上下文，完整聊天记录不会删除。现在继续吗？'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await compactSession(activeSessionId);
+    } catch (error) {
+      setGlobalNotice({
+        id: `compact-failed-${Date.now()}`,
+        type: 'error',
+        message:
+          error instanceof Error && error.message
+            ? `上下文压缩失败：${error.message}`
+            : '上下文压缩失败，请稍后重试。',
+      });
+    }
+  };
+
   const activeSession = activeSessionId ? sessions.find(s => s.id === activeSessionId) : null;
   const currentWorkingDir = activeSession?.cwd || workingDir;
   const { displayArtifactSteps } = getArtifactSteps(steps);
@@ -106,23 +137,17 @@ export function ContextPanel() {
     return { input, output, cacheRead, cacheWrite, total: input + output };
   }, [messages]);
 
-  // Context usage: last message's input tokens ≈ current context occupation
+  // Context usage: prefer main-process budget snapshot over heuristic aggregation
   const contextUsage = useMemo(() => {
-    const contextWindow = activeContextWindow;
-    if (!contextWindow) return null;
-
-    let lastInput = 0;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].tokenUsage?.input) {
-        lastInput = messages[i].tokenUsage!.input;
-        break;
-      }
-    }
-    if (lastInput === 0) return null;
-
-    const percentage = Math.min((lastInput / contextWindow) * 100, 100);
-    return { used: lastInput, total: contextWindow, percentage };
-  }, [activeContextWindow, messages]);
+    if (!tokenBudget) return null;
+    const percentage = Math.min(tokenBudget.usageRatio * 100, 100);
+    return {
+      used: tokenBudget.estimatedTotalTokens,
+      total: tokenBudget.maxContextTokens,
+      percentage,
+      state: tokenBudget.warningState,
+    };
+  }, [tokenBudget]);
 
   const completedStepCount = useMemo(
     () => steps.reduce((n, s) => n + (s.status === 'completed' ? 1 : 0), 0),
@@ -297,8 +322,8 @@ export function ContextPanel() {
             </span>
             {contextUsage ? (
               <span className={`text-xs font-medium ${
-                contextUsage.percentage > 95 ? 'text-error' :
-                contextUsage.percentage > 80 ? 'text-warning' :
+                contextUsage.state === 'blocking' || contextUsage.state === 'error' ? 'text-error' :
+                contextUsage.state === 'warning' ? 'text-warning' :
                 'text-text-primary'
               }`}>
                 {Math.round(contextUsage.percentage)}%
@@ -311,20 +336,57 @@ export function ContextPanel() {
             <div
               className={`h-full rounded-full transition-all duration-500 ease-out ${
                 !contextUsage ? 'bg-border-muted' :
-                contextUsage.percentage > 95 ? 'bg-error' :
-                contextUsage.percentage > 80 ? 'bg-warning' :
+                contextUsage.state === 'blocking' || contextUsage.state === 'error' ? 'bg-error' :
+                contextUsage.state === 'warning' ? 'bg-warning' :
                 'bg-gradient-to-r from-accent to-accent-hover'
               }`}
               style={{ width: `${contextUsage ? contextUsage.percentage : 0}%` }}
             />
           </div>
           {contextUsage ? (
-            <p className="text-xs text-text-muted">
-              {t('context.contextUsageLabel', {
-                used: formatTokenCount(contextUsage.used),
-                total: formatTokenCount(contextUsage.total),
-              })}
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs text-text-muted">
+                {t('context.contextUsageLabel', {
+                  used: formatTokenCount(contextUsage.used),
+                  total: formatTokenCount(contextUsage.total),
+                })}
+              </p>
+              {tokenBudget && (
+                <>
+                  <p className="text-[11px] text-text-muted">
+                    Conversation {formatTokenCount(tokenBudget.estimatedConversationTokens)} · Reserve {formatTokenCount(tokenBudget.reserveTokens)}
+                  </p>
+                  <p className="text-[11px] text-text-muted">
+                    Window {formatTokenCount(activeContextWindow || tokenBudget.contextWindow)} · Status {tokenBudget.warningState}
+                  </p>
+                </>
+              )}
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <div className="min-w-0 text-[11px] text-text-muted">
+                  {latestCompaction ? (
+                    <span className="truncate block">
+                      Last compact: {latestCompaction.compactionType} · {new Date(latestCompaction.createdAt).toLocaleTimeString()}
+                    </span>
+                  ) : (
+                    <span>No compaction yet</span>
+                  )}
+                </div>
+                <button
+                  onClick={handleCompactNow}
+                  disabled={!activeSessionId || isCompacting}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border-muted text-[11px] text-text-primary hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isCompacting && <Loader2 className="w-3 h-3 animate-spin" />}
+                  <span>{isCompacting ? 'Compacting...' : 'Compact Now'}</span>
+                </button>
+              </div>
+              {isCompacting && (
+                <div className="flex items-center gap-1.5 rounded-md bg-surface-muted px-2 py-1.5 text-[11px] text-text-muted">
+                  <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                  <span>{compactionState?.message || '正在创建压缩快照并重建运行时上下文…'}</span>
+                </div>
+              )}
+            </div>
           ) : (
             <p className="text-xs text-text-muted">
               {activeContextWindow

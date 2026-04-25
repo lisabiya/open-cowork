@@ -104,7 +104,11 @@ export function useIPC() {
       const isInitialConfigStatus = !store.hasSeenInitialConfigStatus;
       store.setIsConfigured(isConfigured);
       store.setAppConfig(config);
-      store.setSettings({ theme: config.theme || 'light' });
+      store.setSettings({
+        theme: config.theme || 'light',
+        memoryStrategy: config.memoryStrategy || store.settings.memoryStrategy,
+        maxContextTokens: config.maxContextTokens || store.settings.maxContextTokens,
+      });
       if (isInitialConfigStatus) {
         store.markInitialConfigStatusSeen();
       }
@@ -267,6 +271,31 @@ export function useIPC() {
 
           case 'session.contextInfo':
             store.setSessionContextWindow(event.payload.sessionId, event.payload.contextWindow);
+            break;
+
+          case 'session.tokenBudget':
+            store.setSessionTokenBudget(event.payload.sessionId, event.payload.snapshot);
+            break;
+
+          case 'session.compactionState':
+            store.setSessionCompactionState(event.payload.sessionId, event.payload.state);
+            break;
+
+          case 'session.compaction':
+            store.setSessionCompaction(event.payload.sessionId, event.payload.info);
+            break;
+
+          case 'session.compactionNotice':
+            store.setGlobalNotice({
+              id: `notice-compaction-${Date.now()}`,
+              type:
+                event.payload.level === 'error'
+                  ? 'error'
+                  : event.payload.level === 'warning'
+                    ? 'warning'
+                    : 'info',
+              message: event.payload.message,
+            });
             break;
 
           case 'error':
@@ -461,6 +490,7 @@ export function useIPC() {
 
       // Electron mode
       try {
+        const runtimeSettings = useAppStore.getState().settings;
         const session = await invoke<Session>({
           type: 'session.start',
           payload: {
@@ -468,6 +498,10 @@ export function useIPC() {
             prompt,
             cwd,
             content, // Send full content blocks including images
+            contextConfig: {
+              memoryStrategy: runtimeSettings.memoryStrategy,
+              maxContextTokens: runtimeSettings.maxContextTokens,
+            },
           },
         });
         if (session) {
@@ -532,6 +566,16 @@ export function useIPC() {
 
       // Immediately add user message to UI (for both modes)
       const store = useAppStore.getState();
+      const tokenBudget = store.sessionStates[sessionId]?.tokenBudget;
+      if (tokenBudget?.warningState === 'blocking') {
+        setLoading(false);
+        store.setGlobalNotice({
+          id: `notice-session-blocking-${Date.now()}`,
+          type: 'warning',
+          message: '当前上下文已达到阻塞阈值，请先点击 Compact Now。',
+        });
+        return;
+      }
       const isSessionRunning =
         store.sessions.find((session) => session.id === sessionId)?.status === 'running';
       const ss = store.sessionStates[sessionId];
@@ -581,12 +625,17 @@ export function useIPC() {
       }
 
       try {
+        const runtimeSettings = useAppStore.getState().settings;
         send({
           type: 'session.continue',
           payload: {
             sessionId,
             prompt,
             content, // Send full content blocks including images
+            contextConfig: {
+              memoryStrategy: runtimeSettings.memoryStrategy,
+              maxContextTokens: runtimeSettings.maxContextTokens,
+            },
           },
         });
         // Loading will be reset when we receive session.status event
@@ -761,6 +810,19 @@ export function useIPC() {
     return window.electronAPI.mcp.getServerStatus();
   }, []);
 
+  const compactSession = useCallback(
+    async (sessionId: string) => {
+      if (!isElectron) {
+        return;
+      }
+      await invoke<void>({
+        type: 'session.compact',
+        payload: { sessionId },
+      });
+    },
+    [invoke]
+  );
+
   return {
     send,
     invoke,
@@ -778,6 +840,7 @@ export function useIPC() {
     getWorkingDir,
     changeWorkingDir,
     getMCPServers,
+    compactSession,
     isElectron,
   };
 }

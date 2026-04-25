@@ -40,6 +40,12 @@ export interface DatabaseInstance {
     deleteBySessionId: (sessionId: string) => void;
   };
 
+  compactionSnapshots: {
+    create: (snapshot: CompactionSnapshotRow) => void;
+    getLatestBySessionId: (sessionId: string) => CompactionSnapshotRow | undefined;
+    deleteBySessionId: (sessionId: string) => void;
+  };
+
   scheduledTasks: {
     create: (task: ScheduledTaskRow) => void;
     update: (id: string, updates: Partial<ScheduledTaskRow>) => void;
@@ -111,6 +117,17 @@ export interface ScheduledTaskRow {
   last_error: string | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface CompactionSnapshotRow {
+  id: string;
+  session_id: string;
+  compact_type: string;
+  summary_text: string;
+  preserved_tail: string;
+  estimated_tokens_before: number;
+  estimated_tokens_after: number;
+  created_at: number;
 }
 
 let db: DatabaseInstance | null = null;
@@ -345,8 +362,27 @@ function initializeSchema(database: Database.Database): void {
     ensureColumn(database, 'scheduled_tasks', 'schedule_config', 'schedule_config TEXT');
 
     database.exec(`
+    CREATE TABLE IF NOT EXISTS compaction_snapshots (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      compact_type TEXT NOT NULL,
+      summary_text TEXT NOT NULL,
+      preserved_tail TEXT NOT NULL,
+      estimated_tokens_before INTEGER NOT NULL,
+      estimated_tokens_after INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    )
+  `);
+
+    database.exec(`
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run
     ON scheduled_tasks(enabled, next_run_at)
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_compaction_snapshots_session_created
+    ON compaction_snapshots(session_id, created_at DESC)
   `);
 
     log('[Database] Schema initialized');
@@ -500,6 +536,21 @@ export function initDatabase(): DatabaseInstance {
 
   const deleteTraceStepsBySessionStmt = rawDb.prepare(`
     DELETE FROM trace_steps WHERE session_id = ?
+  `);
+
+  const insertCompactionSnapshot = rawDb.prepare(`
+    INSERT OR REPLACE INTO compaction_snapshots (
+      id, session_id, compact_type, summary_text, preserved_tail, estimated_tokens_before, estimated_tokens_after, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const getLatestCompactionSnapshotBySessionStmt = rawDb.prepare(`
+    SELECT * FROM compaction_snapshots WHERE session_id = ? ORDER BY created_at DESC LIMIT 1
+  `);
+
+  const deleteCompactionSnapshotsBySessionStmt = rawDb.prepare(`
+    DELETE FROM compaction_snapshots WHERE session_id = ?
   `);
 
   const insertScheduledTask = rawDb.prepare(`
@@ -671,6 +722,31 @@ export function initDatabase(): DatabaseInstance {
 
       deleteBySessionId: (sessionId: string) => {
         deleteTraceStepsBySessionStmt.run(sessionId);
+      },
+    },
+
+    compactionSnapshots: {
+      create: (snapshot: CompactionSnapshotRow) => {
+        insertCompactionSnapshot.run(
+          snapshot.id,
+          snapshot.session_id,
+          snapshot.compact_type,
+          snapshot.summary_text,
+          snapshot.preserved_tail,
+          snapshot.estimated_tokens_before,
+          snapshot.estimated_tokens_after,
+          snapshot.created_at
+        );
+      },
+
+      getLatestBySessionId: (sessionId: string): CompactionSnapshotRow | undefined => {
+        return getLatestCompactionSnapshotBySessionStmt.get(sessionId) as
+          | CompactionSnapshotRow
+          | undefined;
+      },
+
+      deleteBySessionId: (sessionId: string) => {
+        deleteCompactionSnapshotsBySessionStmt.run(sessionId);
       },
     },
 

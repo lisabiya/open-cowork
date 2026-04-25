@@ -10,7 +10,7 @@
 import * as fs from 'fs';
 import { log, logError } from '../utils/logger';
 import { SandboxSync } from './sandbox-sync';
-import { isPathWithinRoot } from '../tools/path-containment';
+import { isPathWithinRoot } from '../../shared/path-containment';
 
 export interface ValidationResult {
   allowed: boolean;

@@ -63,8 +63,12 @@ export function ChatView() {
         }
   );
   const prependMessages = useAppStore((s) => s.prependMessages);
+  const setMessages = useAppStore((s) => s.setMessages);
   const setMessagePagination = useAppStore((s) => s.setMessagePagination);
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
+  const tokenBudget = useAppStore((s) =>
+    activeSessionId ? s.sessionStates[activeSessionId]?.tokenBudget ?? null : null
+  );
   const { continueSession, stopSession, getSessionMessages, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -114,6 +118,7 @@ export function ChatView() {
   const pendingCount = pendingTurns.length;
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
+  const isBlockingContext = tokenBudget?.warningState === 'blocking';
 
   useEffect(() => {
     adjustTextareaHeight();
@@ -188,11 +193,6 @@ export function ChatView() {
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    const canScrollForPagination = container.scrollHeight > container.clientHeight + 16;
-    if (!canScrollForPagination) {
-      return;
-    }
-
     pendingPrependRestoreRef.current = {
       previousHeight: container.scrollHeight,
       previousTop: container.scrollTop,
@@ -232,6 +232,80 @@ export function ChatView() {
     messagePagination.oldestTimestamp,
     prependMessages,
     setMessagePagination,
+  ]);
+
+  useEffect(() => {
+    if (!activeSessionId || !isElectron) return;
+    if (messagePagination.initialLoaded || messagePagination.loadingOlder) return;
+
+    if (messages.length > 0) {
+      setMessagePagination(activeSessionId, {
+        hasMore: messages.length >= MESSAGES_PAGE_SIZE,
+        oldestTimestamp: messages[0]?.timestamp ?? null,
+        initialLoaded: true,
+        loadingOlder: false,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setMessagePagination(activeSessionId, { loadingOlder: true });
+
+    getSessionMessages(activeSessionId, { limit: MESSAGES_PAGE_SIZE })
+      .then((page) => {
+        if (cancelled) return;
+        setMessages(activeSessionId, page.messages);
+        setMessagePagination(activeSessionId, {
+          hasMore: page.hasMore,
+          oldestTimestamp: page.oldestTimestamp,
+          initialLoaded: true,
+          loadingOlder: false,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('[ChatView] Failed to load initial messages:', error);
+        setMessagePagination(activeSessionId, { initialLoaded: true, loadingOlder: false });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSessionId,
+    getSessionMessages,
+    isElectron,
+    messagePagination.initialLoaded,
+    messagePagination.loadingOlder,
+    messages,
+    setMessagePagination,
+    setMessages,
+  ]);
+
+  useEffect(() => {
+    if (!activeSessionId || !isElectron) return;
+    if (
+      !messagePagination.initialLoaded ||
+      !messagePagination.hasMore ||
+      messagePagination.loadingOlder ||
+      loadingOlderRef.current
+    ) {
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    if (container.scrollHeight > container.clientHeight + 16) return;
+
+    void loadOlderMessages();
+  }, [
+    activeSessionId,
+    isElectron,
+    loadOlderMessages,
+    messagePagination.hasMore,
+    messagePagination.initialLoaded,
+    messagePagination.loadingOlder,
+    messages.length,
   ]);
 
   // Format execution time for display
@@ -724,7 +798,8 @@ export function ChatView() {
     if (
       (!currentPrompt.trim() && pastedImages.length === 0 && attachedFiles.length === 0) ||
       !activeSessionId ||
-      isSubmitting
+      isSubmitting ||
+      isBlockingContext
     )
       return;
 
@@ -992,7 +1067,7 @@ export function ChatView() {
                   }
                 }}
                 placeholder={t('chat.typeMessage')}
-                disabled={isSubmitting}
+                disabled={isSubmitting || isBlockingContext}
                 rows={CHAT_INPUT_MIN_ROWS}
                 style={{
                   minHeight: `${CHAT_INPUT_MIN_HEIGHT_PX}px`,
@@ -1025,7 +1100,8 @@ export function ChatView() {
                       !textareaRef.current?.value.trim() &&
                       pastedImages.length === 0 &&
                       attachedFiles.length === 0) ||
-                    isSubmitting
+                    isSubmitting ||
+                    isBlockingContext
                   }
                   className="w-9 h-9 rounded-2xl flex items-center justify-center bg-accent text-background disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
                   title={t('chat.sendMessage')}

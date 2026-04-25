@@ -71,10 +71,6 @@ resources/tools/win32-x64/*
 resources/tools/win32-x64/bin/*
 !resources/tools/win32-x64/bin/rg.exe
 resources/python
-docs/
-!docs/
-docs/*
-!docs/windows-coding-agent-architecture-plan.md
 /.mcp.json
 /eng.traineddata
 /jpn.traineddata
@@ -104,10 +100,6 @@ DEV_LOG.md
 .build-cache/
 .bundle-resources/
 
-# VitePress
-website/.vitepress/dist/
-website/.vitepress/cache/
-
 # Temp directories
 .tmp/
 
@@ -115,5 +107,4 @@ website/.vitepress/cache/
 *.png
 !src/renderer/assets/*.png
 !public/*.png
-!website/public/*.png
 !resources/social-preview.png

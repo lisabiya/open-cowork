@@ -139,6 +139,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   showItemInFolder: (filePath: string, cwd?: string) =>
     ipcRenderer.invoke('shell.showItemInFolder', filePath, cwd),
+  openPath: (targetPath: string) => ipcRenderer.invoke('shell.openPath', targetPath),
 
   // Select files using native dialog
   selectFiles: (): Promise<string[]> => ipcRenderer.invoke('dialog.selectFiles'),
@@ -426,6 +427,7 @@ declare global {
       getVersion: () => Promise<string>;
       openExternal: (url: string) => Promise<boolean>;
       showItemInFolder: (filePath: string, cwd?: string) => Promise<boolean>;
+      openPath: (targetPath: string) => Promise<boolean>;
       selectFiles: () => Promise<string[]>;
       artifacts: {
         listRecentFiles: (

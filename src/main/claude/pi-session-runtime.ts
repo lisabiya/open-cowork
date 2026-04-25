@@ -6,6 +6,8 @@ export interface PiSessionRuntimeSignatureInput {
   modelProvider?: string;
   modelApi?: string;
   modelBaseUrl?: string;
+  contextWindow?: number;
+  maxTokens?: number;
   effectiveCwd?: string;
   apiKey?: string;
 }
@@ -16,6 +18,8 @@ export interface PiSessionRuntimeSignatureParts {
   modelProvider: string;
   modelApi: string;
   modelBaseUrl: string;
+  contextWindow: string;
+  maxTokens: string;
   effectiveCwd: string;
   apiKeyFingerprint: string;
 }
@@ -32,23 +36,25 @@ function fingerprintSecret(value: string | undefined): string {
   return createHash('sha256').update(normalized).digest('hex');
 }
 
-export function buildPiSessionRuntimeSignature(
-  input: PiSessionRuntimeSignatureInput,
-): string {
+function normalizeNumber(value: number | undefined): string {
+  return Number.isFinite(value) && value !== undefined && value > 0 ? String(value) : '';
+}
+
+export function buildPiSessionRuntimeSignature(input: PiSessionRuntimeSignatureInput): string {
   return JSON.stringify({
     configProvider: normalizeText(input.configProvider),
     customProtocol: normalizeText(input.customProtocol),
     modelProvider: normalizeText(input.modelProvider),
     modelApi: normalizeText(input.modelApi),
     modelBaseUrl: normalizeText(input.modelBaseUrl).replace(/\/+$/, ''),
+    contextWindow: normalizeNumber(input.contextWindow),
+    maxTokens: normalizeNumber(input.maxTokens),
     effectiveCwd: normalizeText(input.effectiveCwd),
     apiKeyFingerprint: fingerprintSecret(input.apiKey),
   });
 }
 
-function parsePiSessionRuntimeSignature(
-  signature: string,
-): PiSessionRuntimeSignatureParts | null {
+function parsePiSessionRuntimeSignature(signature: string): PiSessionRuntimeSignatureParts | null {
   try {
     const parsed = JSON.parse(signature) as Partial<PiSessionRuntimeSignatureParts>;
     return {
@@ -57,6 +63,8 @@ function parsePiSessionRuntimeSignature(
       modelProvider: normalizeText(parsed.modelProvider),
       modelApi: normalizeText(parsed.modelApi),
       modelBaseUrl: normalizeText(parsed.modelBaseUrl).replace(/\/+$/, ''),
+      contextWindow: normalizeText(parsed.contextWindow),
+      maxTokens: normalizeText(parsed.maxTokens),
       effectiveCwd: normalizeText(parsed.effectiveCwd),
       apiKeyFingerprint: normalizeText(parsed.apiKeyFingerprint),
     };
@@ -65,10 +73,7 @@ function parsePiSessionRuntimeSignature(
   }
 }
 
-export function diffPiSessionRuntimeSignatures(
-  previous: string,
-  next: string,
-): string[] {
+export function diffPiSessionRuntimeSignatures(previous: string, next: string): string[] {
   const previousParts = parsePiSessionRuntimeSignature(previous);
   const nextParts = parsePiSessionRuntimeSignature(next);
 

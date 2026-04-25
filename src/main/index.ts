@@ -22,11 +22,7 @@ import { SessionManager } from './session/session-manager';
 import { SkillsManager } from './skills/skills-manager';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
-import {
-  configStore,
-  type AppConfig,
-  type AppTheme,
-} from './config/config-store';
+import { configStore, type AppConfig, type AppTheme } from './config/config-store';
 import { shutdownSandbox } from './sandbox/sandbox-adapter';
 import { SandboxSync } from './sandbox/sandbox-sync';
 import { getSandboxBootstrap } from './sandbox/sandbox-bootstrap';
@@ -49,13 +45,7 @@ import {
 } from '../shared/local-file-path';
 import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
-import {
-  log,
-  logWarn,
-  logError,
-  closeLogFile,
-  setDevLogsEnabled,
-} from './utils/logger';
+import { log, logWarn, logError, closeLogFile, setDevLogsEnabled } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
 import { registerConfigHandlers } from './ipc/config-handlers';
 import { registerMcpHandlers } from './ipc/mcp-handlers';
@@ -65,7 +55,7 @@ import { registerLogHandlers } from './ipc/log-handlers';
 import { registerRemoteHandlers } from './ipc/remote-handlers';
 import { registerScheduleHandlers } from './ipc/schedule-handlers';
 
-// Current working directory (persisted between sessions)
+// Current working directory used for new sessions and relative path resolution.
 let currentWorkingDir: string | null = null;
 
 // Load .env file from project root (for development)
@@ -532,9 +522,7 @@ function createWindow() {
 }
 
 /**
- * Initialize default working directory
- * This is always the app's default_working_dir in userData - it never changes
- * Each session can have its own cwd that differs from this default
+ * Initialize fallback working directory.
  */
 function initializeDefaultWorkingDir(): string {
   // Create default working directory in user data path (this is the permanent global default)
@@ -570,10 +558,7 @@ function getWorkspacePathUnsupportedReason(workspacePath?: string): string | nul
 /**
  * Set working directory
  * - If sessionId is provided: update only that session's cwd (for switching directories within a chat)
- * - If no sessionId: update UI display only (for WelcomeView - will be used when creating new session)
- *
- * Note: The global default (currentWorkingDir) is NEVER changed after initialization.
- * It is always app.getPath('userData')/default_working_dir
+ * - If no sessionId: update the pending working directory for the next new session
  */
 async function setWorkingDir(
   newDir: string,
@@ -597,6 +582,9 @@ async function setWorkingDir(
     SandboxSync.clearSession(sessionId);
     const { LimaSync } = await import('./sandbox/lima-sync');
     LimaSync.clearSession(sessionId);
+  } else {
+    currentWorkingDir = newDir;
+    remoteManager.setDefaultWorkingDirectory(currentWorkingDir || undefined);
   }
 
   // Notify renderer of workdir change (for UI display)
@@ -1176,6 +1164,61 @@ ipcMain.handle('shell.openExternal', async (_event, url: string) => {
   return shell.openExternal(url);
 });
 
+async function openLocalPath(targetPath: string): Promise<boolean> {
+  if (!targetPath) {
+    return false;
+  }
+
+  const trimInput = targetPath.trim();
+  if (!trimInput) {
+    return false;
+  }
+
+  let normalizedPath = decodePathSafely(trimInput);
+  if (normalizedPath.startsWith('file://')) {
+    const localPath = localPathFromFileUrl(normalizedPath);
+    if (!localPath) {
+      logWarn('[shell.openPath] could not parse file URL:', normalizedPath);
+      return false;
+    }
+    normalizedPath = localPath;
+  }
+
+  if (
+    !isAbsolute(normalizedPath) &&
+    !isWindowsDrivePath(normalizedPath) &&
+    !isUncPath(normalizedPath)
+  ) {
+    logWarn('[shell.openPath] blocked non-absolute path:', targetPath);
+    return false;
+  }
+
+  if (!isUncPath(normalizedPath)) {
+    normalizedPath = resolve(normalizedPath);
+  }
+
+  if (!fs.existsSync(normalizedPath)) {
+    logWarn('[shell.openPath] path does not exist:', normalizedPath);
+    return false;
+  }
+
+  const openResult = await shell.openPath(normalizedPath);
+  if (openResult) {
+    logWarn('[shell.openPath] openPath returned warning:', openResult);
+    return false;
+  }
+  return true;
+}
+
+ipcMain.handle('shell.openPath', async (_event, targetPath: string) => {
+  try {
+    return await openLocalPath(targetPath);
+  } catch (error) {
+    logError('[shell.openPath] failed:', error);
+    return false;
+  }
+});
+
 async function revealFileInFolder(filePath: string, cwd?: string): Promise<boolean> {
   if (!filePath) {
     return false;
@@ -1564,7 +1607,10 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
           typeof event.payload.maxContextTokens === 'number' &&
           Number.isFinite(event.payload.maxContextTokens)
         ) {
-          configUpdates.maxContextTokens = Math.max(8192, Math.floor(event.payload.maxContextTokens));
+          configUpdates.maxContextTokens = Math.max(
+            8192,
+            Math.floor(event.payload.maxContextTokens)
+          );
         }
         if (Object.keys(configUpdates).length > 0) {
           configStore.update(configUpdates);

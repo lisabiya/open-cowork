@@ -72,7 +72,10 @@ import {
 } from './tool-result-utils';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { executeWindowsBash } from '../tools/windows-bash-executor';
-import { resolvePreferredWindowsShell, getWindowsRegistryPathEntries } from '../runtime/runtime-resolver';
+import {
+  resolvePreferredWindowsShell,
+  getWindowsRegistryPathEntries,
+} from '../runtime/runtime-resolver';
 import {
   copyDirectorySync,
   getAppClaudeDir,
@@ -299,7 +302,7 @@ export function restoreUnsignedThinkingBlocksForAnthropicPayload(
       return [];
     }
 
-    return ((message as { content: Array<Record<string, unknown>> }).content)
+    return (message as { content: Array<Record<string, unknown>> }).content
       .filter((block) => {
         if (block.type !== 'thinking') return false;
         return typeof block.thinking === 'string' && block.thinking.trim().length > 0;
@@ -665,10 +668,7 @@ function fingerprintValue(value: unknown): string {
   return fingerprintText(stableStringify(value));
 }
 
-function pickUsageNumber(
-  usage: Record<string, unknown>,
-  keys: string[],
-): number | undefined {
+function pickUsageNumber(usage: Record<string, unknown>, keys: string[]): number | undefined {
   for (const key of keys) {
     const value = usage[key];
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -700,7 +700,9 @@ interface CacheDiagnosticsPayload {
 }
 
 function describeToolForFingerprint(
-  tool: ToolDefinition | { name?: string; type?: string; description?: string; parameters?: unknown },
+  tool:
+    | ToolDefinition
+    | { name?: string; type?: string; description?: string; parameters?: unknown }
 ): Record<string, unknown> {
   const typedTool = tool as {
     name?: string;
@@ -990,9 +992,13 @@ ${hints.join('\n')}
   }
 
   private syncConfiguredSkillsToRuntimeDir(runtimeSkillsDir: string): void {
-    syncConfiguredSkillsToRuntimeDir(runtimeSkillsDir, configStore.get('globalSkillsPath') || undefined, {
-      onWarn: (message, error) => logWarn(`[ClaudeAgentRunner] ${message}`, error),
-    });
+    syncConfiguredSkillsToRuntimeDir(
+      runtimeSkillsDir,
+      configStore.get('globalSkillsPath') || undefined,
+      {
+        onWarn: (message, error) => logWarn(`[ClaudeAgentRunner] ${message}`, error),
+      }
+    );
   }
 
   private copyDirectorySync(source: string, target: string): void {
@@ -1724,6 +1730,20 @@ ${hints.join('\n')}
         }
       }
 
+      if (runtimeConfig.contextWindow && runtimeConfig.contextWindow > 0) {
+        logCtx(
+          '[ClaudeAgentRunner] Applying configured contextWindow override:',
+          runtimeConfig.contextWindow,
+          '(registry:',
+          piModel.contextWindow,
+          ')'
+        );
+        piModel = { ...piModel, contextWindow: runtimeConfig.contextWindow };
+      }
+      if (runtimeConfig.maxTokens && runtimeConfig.maxTokens > 0) {
+        piModel = { ...piModel, maxTokens: runtimeConfig.maxTokens };
+      }
+
       // Send context window info to renderer for UI display
       this.sendToRenderer({
         type: 'session.contextInfo',
@@ -1872,6 +1892,8 @@ ${hints.join('\n')}
         modelProvider: piModel.provider,
         modelApi: piModel.api,
         modelBaseUrl: piModel.baseUrl,
+        contextWindow: piModel.contextWindow,
+        maxTokens: piModel.maxTokens,
         effectiveCwd,
         apiKey,
       });
@@ -2435,11 +2457,17 @@ Tool routing:
               _onPayload?: (
                 payload: Record<string, unknown>,
                 modelArg: unknown
-              ) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
+              ) =>
+                | Promise<Record<string, unknown> | undefined>
+                | Record<string, unknown>
+                | undefined;
               __openCoworkOriginalOnPayload?: (
                 payload: Record<string, unknown>,
                 modelArg: unknown
-              ) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
+              ) =>
+                | Promise<Record<string, unknown> | undefined>
+                | Record<string, unknown>
+                | undefined;
               state?: { messages?: unknown[] };
             }
           | undefined;

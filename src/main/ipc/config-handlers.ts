@@ -29,6 +29,8 @@ const buildAgentRuntimeSignature = (config: AppConfig): string =>
     baseUrl: config.baseUrl,
     customProtocol: config.customProtocol,
     model: config.model,
+    contextWindow: config.contextWindow,
+    maxTokens: config.maxTokens,
     enableThinking: config.enableThinking,
   });
 

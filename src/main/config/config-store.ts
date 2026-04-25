@@ -375,6 +375,22 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
+function omitUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => omitUndefinedDeep(item)) as T;
+  }
+  if (value && typeof value === 'object') {
+    const next: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      if (child !== undefined) {
+        next[key] = omitUndefinedDeep(child);
+      }
+    }
+    return next as T;
+  }
+  return value;
+}
+
 function normalizeCustomProtocol(
   value: CustomProtocolType | undefined,
   fallback: CustomProtocolType = 'anthropic'
@@ -429,7 +445,7 @@ export class ConfigStore {
 
   private ensureNormalized(): void {
     const normalized = this.normalizeConfig(this.store.store as Partial<AppConfig>);
-    this.store.set(normalized);
+    this.store.set(omitUndefinedDeep(normalized));
   }
 
   /**
@@ -554,6 +570,12 @@ export class ConfigStore {
       ) {
         return true;
       }
+      if (typeof rawProfile.contextWindow === 'number' && rawProfile.contextWindow > 0) {
+        return true;
+      }
+      if (typeof rawProfile.maxTokens === 'number' && rawProfile.maxTokens > 0) {
+        return true;
+      }
       return false;
     });
     const shouldUseLegacyProjection = !hasAnyRawProfiles || !hasProfileUserData;
@@ -568,13 +590,21 @@ export class ConfigStore {
     const hasLegacyProjection =
       typeof raw.apiKey === 'string' ||
       typeof raw.baseUrl === 'string' ||
-      typeof raw.model === 'string';
+      typeof raw.model === 'string' ||
+      typeof raw.contextWindow === 'number' ||
+      typeof raw.maxTokens === 'number';
 
     if (shouldUseLegacyProjection && hasLegacyProjection) {
       profiles[derivedProfileKey] = this.normalizeProfile(derivedProfileKey, {
         apiKey: typeof raw.apiKey === 'string' ? raw.apiKey : '',
         baseUrl: typeof raw.baseUrl === 'string' ? raw.baseUrl : undefined,
         model: typeof raw.model === 'string' ? raw.model : undefined,
+        contextWindow:
+          typeof raw.contextWindow === 'number' && raw.contextWindow > 0
+            ? raw.contextWindow
+            : undefined,
+        maxTokens:
+          typeof raw.maxTokens === 'number' && raw.maxTokens > 0 ? raw.maxTokens : undefined,
       });
       activeProfileKey = derivedProfileKey;
     }
@@ -785,7 +815,9 @@ export class ConfigStore {
     return Boolean(
       activeProfile.apiKey.trim() ||
       (activeProfile.baseUrl || '') !== (fallbackActive.baseUrl || '') ||
-      activeProfile.model !== fallbackActive.model
+      activeProfile.model !== fallbackActive.model ||
+      activeProfile.contextWindow !== fallbackActive.contextWindow ||
+      activeProfile.maxTokens !== fallbackActive.maxTokens
     );
   }
 
@@ -820,7 +852,9 @@ export class ConfigStore {
       projected.enableThinking === legacy.enableThinking &&
       projected.apiKey === legacyActive.apiKey &&
       (projected.baseUrl || '') === (legacyActive.baseUrl || '') &&
-      projected.model === legacyActive.model
+      projected.model === legacyActive.model &&
+      projected.contextWindow === legacyActive.contextWindow &&
+      projected.maxTokens === legacyActive.maxTokens
     );
   }
 
@@ -846,6 +880,8 @@ export class ConfigStore {
       apiKey: projected.apiKey,
       baseUrl: projected.baseUrl,
       model: projected.model,
+      contextWindow: projected.contextWindow,
+      maxTokens: projected.maxTokens,
       activeProfileKey: projected.activeProfileKey,
       profiles: projected.profiles,
       activeConfigSetId,
@@ -885,7 +921,7 @@ export class ConfigStore {
 
   private saveConfig(config: AppConfig): void {
     const normalized = this.normalizeConfig(config);
-    this.store.set(normalized);
+    this.store.set(omitUndefinedDeep(normalized));
   }
 
   private composeProjectedConfig(
@@ -903,6 +939,8 @@ export class ConfigStore {
       apiKey: projected.apiKey,
       baseUrl: projected.baseUrl,
       model: projected.model,
+      contextWindow: projected.contextWindow,
+      maxTokens: projected.maxTokens,
       activeProfileKey: projected.activeProfileKey,
       profiles: projected.profiles,
       enableThinking: projected.enableThinking,
@@ -1204,6 +1242,8 @@ export class ConfigStore {
       updates.apiKey !== undefined ||
       updates.baseUrl !== undefined ||
       updates.model !== undefined ||
+      updates.contextWindow !== undefined ||
+      updates.maxTokens !== undefined ||
       updates.enableThinking !== undefined;
 
     if (mutatesActiveSet) {
@@ -1252,6 +1292,12 @@ export class ConfigStore {
         const model = updates.model?.trim();
         nextActiveProfile.model = model ?? '';
       }
+      if (updates.contextWindow !== undefined) {
+        nextActiveProfile.contextWindow = updates.contextWindow;
+      }
+      if (updates.maxTokens !== undefined) {
+        nextActiveProfile.maxTokens = updates.maxTokens;
+      }
       nextProfiles[nextActiveProfileKey] = this.normalizeProfile(
         nextActiveProfileKey,
         nextActiveProfile
@@ -1290,7 +1336,9 @@ export class ConfigStore {
       memoryStrategy:
         updates.memoryStrategy !== undefined ? updates.memoryStrategy : current.memoryStrategy,
       maxContextTokens:
-        updates.maxContextTokens !== undefined ? updates.maxContextTokens : current.maxContextTokens,
+        updates.maxContextTokens !== undefined
+          ? updates.maxContextTokens
+          : current.maxContextTokens,
       sandboxEnabled:
         updates.sandboxEnabled !== undefined ? updates.sandboxEnabled : current.sandboxEnabled,
       isConfigured:

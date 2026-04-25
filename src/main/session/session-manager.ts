@@ -75,6 +75,7 @@ import {
   rebuildRuntimeMessagesFromSnapshot,
 } from '../context/context-compaction';
 import { ProjectMemoryService } from '../memory/project-memory';
+import { resolveKnownModelSpecs } from '../claude/pi-model-resolution';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -93,6 +94,17 @@ Keep only durable, high-value information:
 - unfinished work and next important steps
 Do not preserve verbose tool output unless it changes the outcome.
 Respond in concise markdown with short sections and no code fences unless essential.`;
+
+function resolveRuntimeContextWindow(runtimeConfig: {
+  model?: string;
+  contextWindow?: number;
+}): number {
+  if (runtimeConfig.contextWindow && runtimeConfig.contextWindow > 0) {
+    return runtimeConfig.contextWindow;
+  }
+  const knownSpecs = runtimeConfig.model ? resolveKnownModelSpecs(runtimeConfig.model) : undefined;
+  return knownSpecs?.contextWindow || 180000;
+}
 
 export class SessionManager {
   private db: DatabaseInstance;
@@ -447,7 +459,9 @@ export class SessionManager {
       throw new Error(`Session not found: ${sessionId}`);
     }
     if (this.activeSessions.has(sessionId)) {
-      throw new Error('Session is currently running. Please compact after the current turn finishes.');
+      throw new Error(
+        'Session is currently running. Please compact after the current turn finishes.'
+      );
     }
 
     const runtime = this.getRuntimeMessages(sessionId);
@@ -459,7 +473,7 @@ export class SessionManager {
 
     const resolvedConfig = this.resolveContextConfig(contextConfig);
     const runtimeConfig = configStore.getAll();
-    const contextWindow = runtimeConfig.contextWindow || 180000;
+    const contextWindow = resolveRuntimeContextWindow(runtimeConfig);
     const systemPromptTokens = this.estimateSystemPromptTokens(session, '');
     const beforeBudget = buildTokenBudgetSnapshot({
       messages: runtime.messages,
@@ -761,7 +775,10 @@ export class SessionManager {
     };
   }
 
-  private maybeNotifyRestoredFromBoundary(sessionId: string, snapshot: CompactionSnapshotRow | null): void {
+  private maybeNotifyRestoredFromBoundary(
+    sessionId: string,
+    snapshot: CompactionSnapshotRow | null
+  ): void {
     if (!snapshot || this.restoreNoticeSent.has(sessionId)) {
       return;
     }
@@ -814,10 +831,14 @@ export class SessionManager {
       .slice(0, 6);
     return [
       '## Goal',
-      lastUserText && 'text' in lastUserText ? lastUserText.text.slice(0, 400) : 'Continue the existing session.',
+      lastUserText && 'text' in lastUserText
+        ? lastUserText.text.slice(0, 400)
+        : 'Continue the existing session.',
       '',
       '## Important Context',
-      touchedFiles.length > 0 ? touchedFiles.join('\n') : '- Preserve recent decisions and continue from the latest visible tail.',
+      touchedFiles.length > 0
+        ? touchedFiles.join('\n')
+        : '- Preserve recent decisions and continue from the latest visible tail.',
     ]
       .filter(Boolean)
       .join('\n');
@@ -836,7 +857,11 @@ export class SessionManager {
     ].join('\n\n');
 
     try {
-      const result = await completeWithClaudeSdk(prompt, COMPACTION_SUMMARY_SYSTEM_PROMPT, configStore.getAll());
+      const result = await completeWithClaudeSdk(
+        prompt,
+        COMPACTION_SUMMARY_SYSTEM_PROMPT,
+        configStore.getAll()
+      );
       const text = result.text.trim();
       if (text) {
         return text;
@@ -891,15 +916,16 @@ export class SessionManager {
     this.emitCompactionNotice(
       session.id,
       'info',
-      trigger === 'manual'
-        ? '正在压缩上下文，请稍候…'
-        : '上下文接近上限，正在自动压缩，请稍候…'
+      trigger === 'manual' ? '正在压缩上下文，请稍候…' : '上下文接近上限，正在自动压缩，请稍候…'
     );
 
     try {
       const preservedTailCount = Math.min(getPreservedTailCount(trigger), runtimeMessages.length);
       const preservedTail = runtimeMessages.slice(-preservedTailCount);
-      const olderMessages = runtimeMessages.slice(0, Math.max(0, runtimeMessages.length - preservedTailCount));
+      const olderMessages = runtimeMessages.slice(
+        0,
+        Math.max(0, runtimeMessages.length - preservedTailCount)
+      );
 
       if (olderMessages.length === 0) {
         const estimatedTokens = estimateMessagesTokens(runtimeMessages);
@@ -1048,7 +1074,7 @@ export class SessionManager {
         const contextConfig = this.resolveContextConfig(contextConfigOverride);
         const runtimeConfig = configStore.getAll();
         const systemPromptTokens = this.estimateSystemPromptTokens(session, enhancedPrompt);
-        const contextWindow = runtimeConfig.contextWindow || 180000;
+        const contextWindow = resolveRuntimeContextWindow(runtimeConfig);
         let budgetSnapshot = buildTokenBudgetSnapshot({
           messages: runtimeMessagesBeforeCompaction,
           contextWindow,
@@ -1163,11 +1189,7 @@ export class SessionManager {
         this.emitTokenBudget(session.id, postRunBudget);
 
         // 标题生成不再与首轮对话并发，避免与主请求竞争同一上游配额/通道导致体感变慢。
-        this.runSessionTitleGeneration(
-          session,
-          prompt,
-          existingMessages
-        ).catch((err) =>
+        this.runSessionTitleGeneration(session, prompt, existingMessages).catch((err) =>
           logCtxError('[SessionManager] Title generation failed:', err)
         );
       } catch (error) {
@@ -1343,12 +1365,7 @@ export class SessionManager {
             return; // finally handles cleanup
           }
 
-          await this.processPrompt(
-            latestSession,
-            item.prompt,
-            item.content,
-            item.contextConfig
-          );
+          await this.processPrompt(latestSession, item.prompt, item.content, item.contextConfig);
 
           if (controller.signal.aborted) return; // finally handles cleanup
         }
@@ -1574,11 +1591,7 @@ export class SessionManager {
     return [...messages];
   }
 
-  getMessagesPage(
-    sessionId: string,
-    limit = 5,
-    beforeTimestamp?: number
-  ): SessionMessagesPage {
+  getMessagesPage(sessionId: string, limit = 5, beforeTimestamp?: number): SessionMessagesPage {
     const normalizedLimit = Math.max(1, Math.min(limit, 100));
     const queryLimit = normalizedLimit + 1;
     const rows =
@@ -1587,17 +1600,15 @@ export class SessionManager {
         : this.db.messages.getBeforeTimestamp(sessionId, beforeTimestamp, queryLimit);
     const hasMore = rows.length > normalizedLimit;
     const selectedRows = hasMore ? rows.slice(0, normalizedLimit) : rows;
-    const messages = selectedRows
-      .reverse()
-      .map((row) => ({
-        id: row.id,
-        sessionId: row.session_id,
-        role: row.role as Message['role'],
-        content: this.normalizeContent(row.content),
-        timestamp: row.timestamp,
-        tokenUsage: row.token_usage ? JSON.parse(row.token_usage) : undefined,
-        executionTimeMs: row.execution_time_ms ?? undefined,
-      }));
+    const messages = selectedRows.reverse().map((row) => ({
+      id: row.id,
+      sessionId: row.session_id,
+      role: row.role as Message['role'],
+      content: this.normalizeContent(row.content),
+      timestamp: row.timestamp,
+      tokenUsage: row.token_usage ? JSON.parse(row.token_usage) : undefined,
+      executionTimeMs: row.execution_time_ms ?? undefined,
+    }));
 
     return {
       messages,

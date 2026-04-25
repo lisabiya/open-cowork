@@ -6,12 +6,7 @@ import {
   rebuildRuntimeMessagesFromSnapshot,
 } from '../../main/context/context-compaction';
 
-function textMessage(
-  id: string,
-  role: Message['role'],
-  text: string,
-  timestamp: number
-): Message {
+function textMessage(id: string, role: Message['role'], text: string, timestamp: number): Message {
   return {
     id,
     sessionId: 'session-1',
@@ -36,6 +31,20 @@ describe('context budgeting', () => {
     expect(snapshot.maxContextTokens).toBe(18000);
     expect(snapshot.estimatedConversationTokens).toBeGreaterThan(8000);
     expect(snapshot.warningState).toBe('warning');
+  });
+
+  it('does not clamp large model windows to the legacy 180k default', () => {
+    const snapshot = buildTokenBudgetSnapshot({
+      messages: [textMessage('m1', 'user', 'hello', 1)],
+      contextWindow: 1_000_000,
+      maxContextTokens: 180_000,
+      strategy: 'auto',
+      systemPromptTokens: 1200,
+    });
+
+    expect(snapshot.contextWindow).toBe(1_000_000);
+    expect(snapshot.maxContextTokens).toBe(1_000_000);
+    expect(snapshot.usageRatio).toBeLessThan(0.02);
   });
 });
 

@@ -83,7 +83,8 @@ function estimateContentBlockTokens(block: ContentBlock): number {
 export function estimateMessageTokens(message: Message): number {
   const roleOverhead = message.role === 'assistant' ? 10 : message.role === 'system' ? 14 : 8;
   return (
-    roleOverhead + message.content.reduce((sum, block) => sum + estimateContentBlockTokens(block), 0)
+    roleOverhead +
+    message.content.reduce((sum, block) => sum + estimateContentBlockTokens(block), 0)
   );
 }
 
@@ -91,10 +92,20 @@ export function estimateMessagesTokens(messages: Message[]): number {
   return messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
 }
 
+const LEGACY_DEFAULT_MAX_CONTEXT_TOKENS = 180000;
+
 export function resolveContextBudget(contextWindow: number, maxContextTokens: number): number {
-  const safeContextWindow = Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : 180000;
-  const safeConfiguredMax =
-    Number.isFinite(maxContextTokens) && maxContextTokens > 0 ? maxContextTokens : safeContextWindow;
+  const safeContextWindow =
+    Number.isFinite(contextWindow) && contextWindow > 0
+      ? contextWindow
+      : LEGACY_DEFAULT_MAX_CONTEXT_TOKENS;
+  const hasExplicitConfiguredMax =
+    Number.isFinite(maxContextTokens) &&
+    maxContextTokens > 0 &&
+    !(
+      maxContextTokens === LEGACY_DEFAULT_MAX_CONTEXT_TOKENS && safeContextWindow > maxContextTokens
+    );
+  const safeConfiguredMax = hasExplicitConfiguredMax ? maxContextTokens : safeContextWindow;
   return Math.max(8192, Math.min(safeContextWindow, safeConfiguredMax));
 }
 

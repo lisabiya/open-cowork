@@ -103,6 +103,6 @@ npm run dev
 
 ---
 
-## 许可���
+## 许可
 
 MIT © Open Cowork Team
